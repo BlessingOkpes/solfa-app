@@ -18,47 +18,30 @@ def tempo_to_microseconds(bpm):
     return int(60_000_000 / bpm)
 
 
-def voice_to_midi_track(bars, channel, ticks_per_beat=TICKS_PER_BEAT):
+def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT):
     """
-    Convert one voice's parsed bars (list of bars, each a list of MIDI notes)
-    into a MidiTrack. Each beat = one quarter note (ticks_per_beat ticks).
-    None = rest. Repeated identical values from a HOLD are treated as a
-    single longer note.
+    Convert a list of (midi_note, duration_beats) tuples into a MidiTrack.
+    None = rest. Duration can be 0.25, 0.5, 0.75, 1, 2, 3, 4 beats etc.
     """
     track = MidiTrack()
 
-    # Flatten all bars into one continuous list of beats
-    all_beats = []
-    for bar in bars:
-        all_beats.extend(bar)
-
-    i = 0
-    while i < len(all_beats):
-        note = all_beats[i]
-
-        # Count how many consecutive beats this note is held for
-        duration_beats = 1
-        while (i + duration_beats < len(all_beats)
-               and all_beats[i + duration_beats] == note
-               and note is not None):
-            duration_beats += 1
-
-        duration_ticks = duration_beats * ticks_per_beat
+    for item in notes:
+        note, duration = item
+        duration_ticks = int(duration * ticks_per_beat)
 
         if note is None:
-            # Rest: just advance time, no note_on/note_off
             track.append(Message('note_off', note=0, velocity=0,
                                   time=duration_ticks, channel=channel))
         else:
-            track.append(Message('note_on', note=note, velocity=80,
+            track.append(Message('note_on', note=int(note), velocity=80,
                                   time=0, channel=channel))
-            track.append(Message('note_off', note=note, velocity=80,
+            track.append(Message('note_off', note=int(note), velocity=80,
                                   time=duration_ticks, channel=channel))
-
-        i += duration_beats
+    # Add short silence at end so FluidSynth renders cleanly
+    track.append(Message('note_off', note=0, velocity=0,
+                          time=ticks_per_beat * 2, channel=channel))        
 
     return track
-
 
 def generate_midi_file(score_text, output_path='output.mid'):
     """
@@ -98,9 +81,9 @@ if __name__ == '__main__':
 KEY: F_MAJOR
 TIME: 4/4
 TEMPO: 90
-SOPRANO: d:r:m:f | s:s:m:d |
+SOPRANO: l:s:l.s:f | m:t:s:l |
 ALTO: m:m:r:r | m:m:d:d |
 TENOR: s:f:m:r | d:t1:d:m |
-BASS: d:d:d:d | d:d:d:d |
+BASS: d:-:-:- | d:-:-:- |
 """
     generate_midi_file(sample_score, output_path='test_output.mid')

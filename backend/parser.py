@@ -1,119 +1,195 @@
 # Solfa to MIDI note mapper
-# Maps solfa syllables to scale degrees
 SOLFA_DEGREES = {
-    'd': 0,  # Do
-    'r': 2,  # Re
-    'm': 4,  # Mi
-    'f': 5,  # Fa
-    's': 7,  # Sol
-    'l': 9,  # La
-    't': 11  # Ti
+    'd': 0, 'r': 2, 'm': 4, 'f': 5,
+    's': 7, 'l': 9, 't': 11
 }
 
-# Maps key names to their root MIDI note numbers
 KEY_ROOTS = {
-    'C_MAJOR': 60,
-    'D_MAJOR': 62,
-    'E_MAJOR': 64,
-    'F_MAJOR': 65,
-    'G_MAJOR': 67,
-    'A_MAJOR': 69,
-    'B_MAJOR': 71,
-    'Bb_MAJOR': 70,
-    'Eb_MAJOR': 63,
+    'C_MAJOR': 60, 'D_MAJOR': 62, 'E_MAJOR': 64,
+    'F_MAJOR': 65, 'G_MAJOR': 67, 'A_MAJOR': 69,
+    'B_MAJOR': 71, 'Bb_MAJOR': 70, 'Eb_MAJOR': 63,
     'Ab_MAJOR': 68,
 }
 
 
-def solfa_to_midi(note, key='C_MAJOR', octave=0):
-    """Convert a single solfa syllable to a MIDI note number"""
-    if note not in SOLFA_DEGREES:
+def solfa_to_midi(syllable, key='C_MAJOR', octave=0):
+    if syllable not in SOLFA_DEGREES:
         return None
     root = KEY_ROOTS.get(key, 60)
-    midi_note = root + SOLFA_DEGREES[note] + (octave * 12)
-    return midi_note
+    return root + SOLFA_DEGREES[syllable] + (octave * 12)
 
 
-def parse_note_token(token):
+def get_octave(token):
+    """Extract octave shift and clean token."""
+    if token.endswith("'"):
+        return token[:-1], 1
+    elif token and token[-1].isdigit():
+        return token[:-1], -1
+    return token, 0
+
+
+def parse_beat_token(token, key, last_midi):
     """
-    Parse a single note token like 'd', 'd1' (lower octave), "d'" (upper octave),
-    '-' (held note), or 'x' (rest).
-    Returns a tuple: (syllable_or_special, octave_shift)
+    Parse one beat token. Rules:
+    - dot/comma BEFORE a note = rest prefix + note takes remaining
+    - dot/comma AFTER a note = note takes that duration + rest for remaining
+    - dot BETWEEN two notes = split beat equally between them
+    - '-' = hold previous note for 1 full beat
+    - empty = rest for 1 full beat
     """
     token = token.strip()
 
+    if not token:
+        return [(None, 1.0)]
+
     if token == '-':
-        return ('HOLD', 0)
-    if token in ('x', 'X'):
-        return ('REST', 0)
+        return [(last_midi, 1.0)]
 
-    octave_shift = 0
-    # Trailing apostrophe = upper octave
-    if token.endswith("'"):
-        octave_shift = 1
-        token = token[:-1]
-    # Trailing digit = lower octave (e.g. d1, s1)
-    elif token and token[-1].isdigit():
-        octave_shift = -1
-        token = token[:-1]
+    results = []
+    i = 0
+    total = 0.0
 
-    syllable = token.lower()
-    if syllable not in SOLFA_DEGREES:
-        return (None, 0)
+    while i < len(token):
+        char = token[i]
 
-    return (syllable, octave_shift)
+        # Leading rest prefix
+        if char == '.' and (i == 0 or token[i-1] not in 'drmfslt'):
+            # Check if dot is between two notes (e.g. l.l)
+            # If next char is a note, it's a separator = equal split
+            if i > 0 and token[i-1].lower() in SOLFA_DEGREES:
+                # dot is after a note — check if there's another note after
+                if i + 1 < len(token) and token[i+1].lower() in SOLFA_DEGREES:
+                    # dot between two notes: previous note already added at 0.5
+                    # update last result duration to 0.5
+                    if results:
+                        midi, _ = results[-1]
+                        results[-1] = (midi, 0.5)
+                        total = sum(d for _, d in results)
+                    i += 1
+                    continue
+                else:
+                    # trailing dot after note = note was 0.5, add rest
+                    if results:
+                        midi, _ = results[-1]
+                        results[-1] = (midi, 0.5)
+                        total = sum(d for _, d in results)
+                    results.append((None, 0.5))
+                    total += 0.5
+                    i += 1
+                    continue
+            else:
+                # leading dot = rest 0.5
+                results.append((None, 0.5))
+                total += 0.5
+                i += 1
+                continue
 
+        elif char == ',' and (i == 0 or token[i-1] not in 'drmfslt'):
+            if i > 0 and token[i-1].lower() in SOLFA_DEGREES:
+                # comma after note
+                if results:
+                    midi, _ = results[-1]
+                    results[-1] = (midi, 0.25)
+                    total = sum(d for _, d in results)
+                results.append((None, 0.75))
+                total += 0.75
+                i += 1
+                continue
+            else:
+                # leading comma = rest 0.25
+                results.append((None, 0.25))
+                total += 0.25
+                i += 1
+                continue
+
+        # Note character
+        if char.lower() in SOLFA_DEGREES:
+            syllable = char.lower()
+            i += 1
+
+            # Octave
+            octave = 0
+            if i < len(token) and token[i] == "'":
+                octave = 1
+                i += 1
+            elif i < len(token) and token[i].isdigit():
+                octave = -1
+                i += 1
+
+            # Peek at suffix
+            suffix = ''
+            if i < len(token) and token[i:i+2] == '.,':
+                suffix = '.,'
+            elif i < len(token) and token[i] == '.':
+                # Check if dot is between two notes
+                if i + 1 < len(token) and token[i+1].lower() in SOLFA_DEGREES:
+                    suffix = '.between'
+                else:
+                    suffix = '.'
+            elif i < len(token) and token[i] == ',':
+                suffix = ','
+
+            midi = solfa_to_midi(syllable, key, octave)
+
+            if suffix == '.,':
+                duration = 0.75
+                i += 2
+            elif suffix == '.between':
+                duration = 0.5
+                i += 1  # consume the dot, next iteration handles next note
+            elif suffix == '.':
+                duration = 0.5
+                i += 1
+            elif suffix == ',':
+                duration = 0.25
+                i += 1
+            else:
+                # No suffix — take remaining beats
+                remaining = round(1.0 - total, 4)
+                duration = remaining if remaining > 0 else 1.0
+
+            results.append((midi, duration))
+            total += duration
+            continue
+
+        i += 1
+
+    # Pad with rest if total < 1.0
+    remaining = round(1.0 - total, 4)
+    if remaining > 0.001:
+        results.append((None, remaining))
+
+    return results
 
 def parse_voice_line(line, key='C_MAJOR'):
     """
-    Parse one voice line such as: d:r:m:f | s:s:m:d |
-    Returns a list of bars, each bar a list of MIDI note numbers
-    (or None for rest, or 'HOLD' marker for tie/extend).
+    Parse one voice line and return list of (midi, duration) tuples.
+    Colon alone = rest. Bar lines | are ignored as separators.
+    Tied notes: - continues previous note across bar lines.
     """
-    line = line.strip()
-    bars = [b.strip() for b in line.split('|') if b.strip()]
+    # Split by bar lines first, then by colons
+    bars = [b for b in line.strip().split('|') if b.strip()]
 
-    parsed_bars = []
+    all_tokens = []
+    for bar in bars:
+        tokens = bar.split(':')
+        for token in tokens:
+            all_tokens.append(token.strip())
+
+    result = []
     last_midi = None
 
-    for bar in bars:
-        beats = [t.strip() for t in bar.split(':') if t.strip()]
-        parsed_beats = []
-
-        for token in beats:
-            syllable, octave_shift = parse_note_token(token)
-
-            if syllable == 'HOLD':
-                parsed_beats.append(last_midi)  # extend previous note
-            elif syllable == 'REST':
-                parsed_beats.append(None)
-                last_midi = None
-            elif syllable is None:
-                parsed_beats.append(None)  # unrecognized token treated as rest
-            else:
-                midi = solfa_to_midi(syllable, key, octave_shift)
-                parsed_beats.append(midi)
+    for token in all_tokens:
+        notes = parse_beat_token(token, key, last_midi)
+        for midi, duration in notes:
+            result.append((midi, duration))
+            if midi is not None:
                 last_midi = midi
 
-        parsed_bars.append(parsed_beats)
-
-    return parsed_bars
+    return result
 
 
 def parse_score(score_text):
-    """
-    Parse a full score block like:
-
-        KEY: F_MAJOR
-        TIME: 4/4
-        TEMPO: 90
-        SOPRANO: d:r:m:f | s:s:m:d |
-        ALTO: m:m:r:r | m:m:d:d |
-        TENOR: s:f:m:r | d:t1:d:m |
-        BASS: d:d:d:d | d:d:d:d |
-
-    Returns a dict with key, time, tempo, and parsed MIDI data for each voice part.
-    """
     key = 'C_MAJOR'
     time_sig = '4/4'
     tempo = 90
@@ -123,7 +199,6 @@ def parse_score(score_text):
         line = raw_line.strip()
         if not line:
             continue
-
         if line.upper().startswith('KEY:'):
             key = line.split(':', 1)[1].strip()
         elif line.upper().startswith('TIME:'):
@@ -145,37 +220,29 @@ def parse_score(score_text):
     }
 
 
-# Test it
 if __name__ == '__main__':
-    print("=== Test 1: Single syllable conversion ===")
-    test_notes = ['d', 'r', 'm', 'f', 's', 'l', 't']
-    print("C Major:")
-    for note in test_notes:
-        print(f"  {note} -> MIDI {solfa_to_midi(note, 'C_MAJOR')}")
-
-    print("\nF Major:")
-    for note in test_notes:
+    print("=== Test 1: Basic notes F Major ===")
+    for note in ['d', 'r', 'm', 'f', 's', 'l', 't']:
         print(f"  {note} -> MIDI {solfa_to_midi(note, 'F_MAJOR')}")
 
-    print("\n=== Test 2: Full voice line parsing ===")
-    soprano_line = "d:r:m:f | s:s:m:d |"
-    result = parse_voice_line(soprano_line, key='F_MAJOR')
-    print(f"Input:  {soprano_line}")
-    print(f"Output: {result}")
+    print("\n=== Test 2: d:r:m:f | s:s:m:d ===")
+    from pprint import pprint
+    pprint(parse_voice_line('d:r:m:f | s:s:m:d |', 'F_MAJOR'))
 
-    print("\n=== Test 3: Full score parsing ===")
-    sample_score = """
-KEY: F_MAJOR
-TIME: 4/4
-TEMPO: 90
-SOPRANO: d:r:m:f | s:s:m:d |
-ALTO: m:m:r:r | m:m:d:d |
-TENOR: s:f:m:r | d:t1:d:m |
-BASS: d:d:d:d | d:d:d:d |
-"""
-    score = parse_score(sample_score)
-    print(f"Key: {score['key']}")
-    print(f"Time Signature: {score['time_signature']}")
-    print(f"Tempo: {score['tempo']} BPM")
-    for voice, bars in score['voices'].items():
-        print(f"{voice}: {bars}")
+    print("\n=== Test 3: l.l (two half beat notes) ===")
+    pprint(parse_voice_line('l.l:s:m:d |', 'F_MAJOR'))
+
+    print("\n=== Test 4: .d (rest half + d half) ===")
+    pprint(parse_voice_line('.d:d:r:m |', 'F_MAJOR'))
+
+    print("\n=== Test 5: d, (quarter beat) ===")
+    pprint(parse_voice_line('d,d,d,d,:r:m:f |', 'F_MAJOR'))
+
+    print("\n=== Test 6: tied notes across bar line ===")
+    pprint(parse_voice_line('d:r:m:- | -:f:s:l |', 'F_MAJOR'))
+
+    print("\n=== Test 7: standalone colon rest ===")
+    pprint(parse_voice_line(':d:r:m |', 'F_MAJOR'))
+
+    print("\n=== Test 8: real soprano line ===")
+    pprint(parse_voice_line('l:s:l.l:f | m:t:s:l |', 'F_MAJOR'))
