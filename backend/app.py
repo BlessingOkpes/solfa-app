@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 import os
 import uuid
 from parser import parse_score
@@ -6,6 +7,7 @@ from generate_midi import generate_midi_file
 from render_audio import render_midi_to_audio
 
 app = Flask(__name__)
+CORS(app)
 
 # Temporary folder for generated files
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'outputs')

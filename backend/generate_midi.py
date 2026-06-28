@@ -43,7 +43,7 @@ def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT):
 
     return track
 
-def generate_midi_file(score_text, output_path='output.mid'):
+def generate_midi_file(score_text, output_path='output.mid', voice_filter='all'):
     """
     Parse solfa score text and write a complete SATB MIDI file to output_path.
     """
@@ -61,6 +61,8 @@ def generate_midi_file(score_text, output_path='output.mid'):
 
     # One track per voice part
     for voice_name, bars in score['voices'].items():
+        if voice_filter != 'all' and voice_name.upper() != voice_filter.upper():
+         continue
         channel = VOICE_CHANNELS.get(voice_name, 0)
         track = voice_to_midi_track(bars, channel)
         track.insert(0, MetaMessage('track_name', name=voice_name, time=0))
