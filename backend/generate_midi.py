@@ -10,42 +10,82 @@ VOICE_CHANNELS = {
     'BASS': 3,
 }
 
-TICKS_PER_BEAT = 480  # standard MIDI resolution
+# General MIDI program numbers for each voice
+VOICE_PROGRAMS = {
+    'SOPRANO': 52,
+    'ALTO': 52,
+    'TENOR': 52,
+    'BASS': 52,
+}
+
+VOICE_OCTAVE_SHIFT = {
+    'SOPRANO': 0,
+    'ALTO': 0,
+    'TENOR': 0,
+    'BASS': -1,
+}
+TICKS_PER_BEAT = 480
 
 
 def tempo_to_microseconds(bpm):
-    """Convert beats-per-minute to MIDI tempo (microseconds per quarter note)"""
     return int(60_000_000 / bpm)
 
 
-def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT):
+def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT, voice_name=None):
     """
-    Convert a list of (midi_note, duration_beats) tuples into a MidiTrack.
-    None = rest. Duration can be 0.25, 0.5, 0.75, 1, 2, 3, 4 beats etc.
+    Convert a list of (midi_note_or_special, duration_beats) tuples into a MidiTrack.
+    Special values: 'HOLD' = hold previous note, 'REST' = silence.
     """
     track = MidiTrack()
+    octave_shift = VOICE_OCTAVE_SHIFT.get(voice_name, 0) if voice_name else 0
+    last_midi = None
 
     for item in notes:
         note, duration = item
         duration_ticks = int(duration * ticks_per_beat)
 
-        if note is None:
+        # Handle special tokens
+        if note == 'HOLD':
+            # Continue previous note — just add silence (note already playing)
+            if last_midi is not None:
+                track.append(Message('note_off', note=last_midi, velocity=0,
+                                      time=0, channel=channel))
+                track.append(Message('note_on', note=last_midi, velocity=75,
+                                      time=0, channel=channel))
+                track.append(Message('note_off', note=last_midi, velocity=0,
+                                      time=duration_ticks, channel=channel))
+            else:
+                track.append(Message('note_off', note=0, velocity=0,
+                                      time=duration_ticks, channel=channel))
+            continue
+
+        if note == 'REST' or note is None:
             track.append(Message('note_off', note=0, velocity=0,
                                   time=duration_ticks, channel=channel))
-        else:
-            track.append(Message('note_on', note=int(note), velocity=80,
-                                  time=0, channel=channel))
-            track.append(Message('note_off', note=int(note), velocity=80,
-                                  time=duration_ticks, channel=channel))
+            last_midi = None
+            continue
+
+        # Apply voice-specific octave shift
+        shifted_note = int(note) + (octave_shift * 12)
+        shifted_note = max(0, min(127, shifted_note))
+
+        track.append(Message('note_on', note=shifted_note, velocity=80,
+                              time=0, channel=channel))
+        track.append(Message('note_off', note=shifted_note, velocity=80,
+                              time=duration_ticks, channel=channel))
+        last_midi = shifted_note
+
     # Add short silence at end so FluidSynth renders cleanly
     track.append(Message('note_off', note=0, velocity=0,
-                          time=ticks_per_beat * 2, channel=channel))        
+                          time=ticks_per_beat * 2, channel=channel))
 
     return track
+
 
 def generate_midi_file(score_text, output_path='output.mid', voice_filter='all'):
     """
     Parse solfa score text and write a complete SATB MIDI file to output_path.
+    voice_filter can be 'all', a single voice name string, or a list of voice names.
     """
     score = parse_score(score_text)
 
@@ -60,14 +100,22 @@ def generate_midi_file(score_text, output_path='output.mid', voice_filter='all')
     tempo_track.append(MetaMessage('track_name', name='Tempo Track', time=0))
 
     # One track per voice part
-    for voice_name, bars in score['voices'].items():
-        if voice_filter != 'all' and voice_name.upper() != voice_filter.upper():
-         continue
+    for voice_name, notes in score['voices'].items():
+        # Apply voice filter
+        if voice_filter != 'all':
+            if isinstance(voice_filter, list):
+                if voice_name.upper() not in [v.upper() for v in voice_filter]:
+                    continue
+            elif voice_name.upper() != voice_filter.upper():
+                continue
+
         channel = VOICE_CHANNELS.get(voice_name, 0)
-        track = voice_to_midi_track(bars, channel)
+        program = VOICE_PROGRAMS.get(voice_name, 52)
+
+        track = voice_to_midi_track(notes, channel,
+                                     voice_name=voice_name)
         track.insert(0, MetaMessage('track_name', name=voice_name, time=0))
-        # Choir Aahs patch (General MIDI program 52, zero-indexed = 52)
-        track.insert(1, Message('program_change', program=52,
+        track.insert(1, Message('program_change', program=program,
                                  channel=channel, time=0))
         midi_file.tracks.append(track)
 
@@ -83,9 +131,9 @@ if __name__ == '__main__':
 KEY: F_MAJOR
 TIME: 4/4
 TEMPO: 90
-SOPRANO: l:s:l.s:f | m:t:s:l |
+SOPRANO: l.l:m.m:f | s:s:l:l |
 ALTO: m:m:r:r | m:m:d:d |
 TENOR: s:f:m:r | d:t1:d:m |
-BASS: d:-:-:- | d:-:-:- |
+BASS: d:l1:d:t1 | d:-:-:- |
 """
     generate_midi_file(sample_score, output_path='test_output.mid')
