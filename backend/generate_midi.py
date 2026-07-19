@@ -34,53 +34,64 @@ def tempo_to_microseconds(bpm):
 def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT, voice_name=None):
     """
     Convert a list of (midi_note_or_special, duration_beats) tuples into a MidiTrack.
-    Special values: 'HOLD' = hold previous note, 'REST' = silence.
+    'HOLD' extends the currently sounding note (no retrigger).
+    'REST' is silence.
     """
     track = MidiTrack()
     octave_shift = VOICE_OCTAVE_SHIFT.get(voice_name, 0) if voice_name else 0
-    last_midi = None
+
+    pending_note = None
+    pending_ticks = 0
 
     for item in notes:
         note, duration = item
         duration_ticks = int(duration * ticks_per_beat)
 
-        # Handle special tokens
         if note == 'HOLD':
-            # Continue previous note — just add silence (note already playing)
-            if last_midi is not None:
-                track.append(Message('note_off', note=last_midi, velocity=0,
-                                      time=0, channel=channel))
-                track.append(Message('note_on', note=last_midi, velocity=75,
-                                      time=0, channel=channel))
-                track.append(Message('note_off', note=last_midi, velocity=0,
-                                      time=duration_ticks, channel=channel))
+            if pending_note is not None:
+                # extend the currently sounding note, no retrigger
+                pending_ticks += duration_ticks
             else:
+                # nothing to hold, just silent gap
                 track.append(Message('note_off', note=0, velocity=0,
                                       time=duration_ticks, channel=channel))
             continue
 
         if note == 'REST' or note is None:
+            if pending_note is not None:
+                track.append(Message('note_off', note=pending_note, velocity=0,
+                                      time=pending_ticks, channel=channel))
+                pending_note = None
+                pending_ticks = 0
             track.append(Message('note_off', note=0, velocity=0,
                                   time=duration_ticks, channel=channel))
-            last_midi = None
             continue
 
-        # Apply voice-specific octave shift
+        # Regular note: close out whatever was sustaining, then start this one
+        if pending_note is not None:
+            track.append(Message('note_off', note=pending_note, velocity=0,
+                                  time=pending_ticks, channel=channel))
+            pending_note = None
+            pending_ticks = 0
+
         shifted_note = int(note) + (octave_shift * 12)
         shifted_note = max(0, min(127, shifted_note))
 
         track.append(Message('note_on', note=shifted_note, velocity=95,
                               time=0, channel=channel))
-        track.append(Message('note_off', note=shifted_note, velocity=95,
-                              time=duration_ticks, channel=channel))
-        last_midi = shifted_note
+        pending_note = shifted_note
+        pending_ticks = duration_ticks
 
-    # Add short silence at end so FluidSynth renders cleanly
+    # Flush any note still sustaining at the end
+    if pending_note is not None:
+        track.append(Message('note_off', note=pending_note, velocity=0,
+                              time=pending_ticks, channel=channel))
+
+    # Trailing silence so FluidSynth renders cleanly
     track.append(Message('note_off', note=0, velocity=0,
                           time=ticks_per_beat * 2, channel=channel))
 
     return track
-
 
 def generate_midi_file(score_text, output_path='output.mid', voice_filter='all'):
     """
