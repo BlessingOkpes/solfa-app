@@ -19,7 +19,6 @@ const REQUIRED_BEATS = {
 };
 function getRequiredBeats(t) { return REQUIRED_BEATS[t] || 4.0; }
 
-// Tempo names with BPM values
 const TEMPOS = [
   { name: 'Largo', bpm: 50 },
   { name: 'Adagio', bpm: 72 },
@@ -62,11 +61,6 @@ function getEntryBeatValue(entry) {
   return 1.0;
 }
 
-function calculateBeatGroupValue(tokens) {
-  // A beat group is tokens between two : or / separators
-  return tokens.reduce((t, e) => t + getEntryBeatValue(e), 0);
-}
-
 function buildSolfaText(grid, key, timeSig, tempo, selectedVoices, barFilter) {
   let text = `KEY: ${KEY_MAP[key]}\nTIME: ${timeSig}\nTEMPO: ${tempo}\n`;
   VOICES.forEach((voice, vi) => {
@@ -78,7 +72,7 @@ function buildSolfaText(grid, key, timeSig, tempo, selectedVoices, barFilter) {
       if (bar.length > 0) {
         text += bar.join('') + ' | ';
       } else {
-        text += 'd: | ';
+         text += 'x: | ';
       }
     });
     text += '\n';
@@ -93,10 +87,10 @@ function makeEmptyGrid(n) {
 export default function App() {
   const [selectedKey, setSelectedKey] = useState('F');
   const [selectedTime, setSelectedTime] = useState('4/4');
-  const [selectedTempo, setSelectedTempo] = useState(TEMPOS[2]); // Andante default
+  const [selectedTempo, setSelectedTempo] = useState(TEMPOS[2]);
   const [numBars, setNumBars] = useState(4);
   const [grid, setGrid] = useState(makeEmptyGrid(4));
-  const [activeCell, setActiveCell] = useState({ voice: 0, bar: 0 });
+  const [activeCell, setActiveCell] = useState({ voice: 0, bar: 0, noteIndex: 0});
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectedVoices, setSelectedVoices] = useState(['all']);
   const [isLoading, setIsLoading] = useState(false);
@@ -108,7 +102,7 @@ export default function App() {
   const [barInputText, setBarInputText] = useState('');
   const [cursorBlink, setCursorBlink] = useState(true);
   const [overflowWarning, setOverflowWarning] = useState('');
-  const [copiedBar, setCopiedBar] = useState(null); // {voice, entries}
+  const [copiedBar, setCopiedBar] = useState(null);
 
   useEffect(() => {
     if (!keyboardVisible) return;
@@ -118,20 +112,26 @@ export default function App() {
 
   function getBar(vi, bi) { return (grid[vi] && grid[vi][bi]) || []; }
 
-  function addEntry(vi, bi, entry) {
+function addEntry(vi, bi, entry) {
     setGrid(prev => {
       const next = prev.map(v => v.map(b => [...b]));
-      next[vi][bi].push(entry);
+      const bar = next[vi][bi];
+      const idx = Math.min(activeCell.noteIndex, bar.length);
+      bar.splice(idx, 0, entry);
       return next;
     });
+    setActiveCell(prev => ({ ...prev, noteIndex: prev.noteIndex + 1 }));
   }
 
   function deleteLastEntry(vi, bi) {
     setGrid(prev => {
       const next = prev.map(v => v.map(b => [...b]));
-      if (next[vi][bi].length > 0) next[vi][bi].pop();
+      const bar = next[vi][bi];
+      const idx = activeCell.noteIndex > 0 ? activeCell.noteIndex - 1 : bar.length - 1;
+      if (idx >= 0 && idx < bar.length) bar.splice(idx, 1);
       return next;
     });
+    setActiveCell(prev => ({ ...prev, noteIndex: Math.max(0, prev.noteIndex - 1) }));
     setPendingNote(null);
     setOverflowWarning('');
   }
@@ -168,8 +168,9 @@ export default function App() {
     setStatusType('ready');
   }
 
-  function handleCellTap(vi, bi) {
-    setActiveCell({ voice: vi, bar: bi });
+ function handleCellTap(vi, bi) {
+    const bar = getBar(vi, bi);
+    setActiveCell({ voice: vi, bar: bi, noteIndex: bar.length });
     setPendingNote(null);
     setKeyError('');
     setBarInputText('');
@@ -182,19 +183,31 @@ export default function App() {
   }
 
   function moveLeft() {
-    setActiveCell(prev => ({
-      ...prev,
-      bar: Math.max(0, prev.bar - 1),
-    }));
+    setActiveCell(prev => {
+      if (prev.noteIndex > 0) {
+        return { ...prev, noteIndex: prev.noteIndex - 1 };
+      }
+      if (prev.bar > 0) {
+        const prevBarLen = getBar(prev.voice, prev.bar - 1).length;
+        return { ...prev, bar: prev.bar - 1, noteIndex: prevBarLen };
+      }
+      return prev;
+    });
     setPendingNote(null);
     setOverflowWarning('');
   }
 
   function moveRight() {
-    setActiveCell(prev => ({
-      ...prev,
-      bar: Math.min(numBars - 1, prev.bar + 1),
-    }));
+    setActiveCell(prev => {
+      const barLen = getBar(prev.voice, prev.bar).length;
+      if (prev.noteIndex < barLen) {
+        return { ...prev, noteIndex: prev.noteIndex + 1 };
+      }
+      if (prev.bar + 1 < numBars) {
+        return { ...prev, bar: prev.bar + 1, noteIndex: 0 };
+      }
+      return prev;
+    });
     setPendingNote(null);
     setOverflowWarning('');
   }
@@ -229,12 +242,11 @@ export default function App() {
     setStatusMessage('Note added ✓');
     setStatusType('ready');
 
-    // Auto-advance if bar is now full
     setTimeout(() => {
       const required = getRequiredBeats(selectedTime);
       const newBeats = getCurrentBarBeats(voice, bar) + durationValue;
       if (newBeats >= required - 0.001 && bar + 1 < numBars) {
-        setActiveCell({ voice, bar: bar + 1 });
+        setActiveCell({ voice, bar: bar + 1, noteIndex: 0 });
       }
     }, 50);
   }
@@ -245,7 +257,6 @@ export default function App() {
     const { voice, bar } = activeCell;
     const cleaned = text.replace(/\|/g, ' ').trim();
 
-    // Split by : and / to get tokens, preserving separators
     const tokens = [];
     let current = '';
     for (let i = 0; i < cleaned.length; i++) {
@@ -334,7 +345,6 @@ export default function App() {
     });
   }
 
-  // Physical keyboard
   useEffect(() => {
     if (!keyboardVisible) return;
     let buffer = '';
@@ -443,7 +453,7 @@ export default function App() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%', marginBottom: 4 }}>
         <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
           {items.map(item => {
-            const isSelected = labelFn ? item === selected : item === selected;
+            const isSelected = item === selected;
             return (
               <TouchableOpacity
                 key={String(labelFn ? item.name : item)}
@@ -516,7 +526,6 @@ export default function App() {
                     const isComplete = Math.abs(beats - required) < 0.01;
                     const isOver = beats > required + 0.001;
                     const isActive = activeCell.voice === vi && activeCell.bar === bi && keyboardVisible;
-                    const isCopied = copiedBar && copiedBar.voice === vi;
 
                     let counterColor = C.textSecondary;
                     let counterIcon = '○';
@@ -531,17 +540,22 @@ export default function App() {
                         onPress={() => handleCellTap(vi, bi)}
                         onLongPress={() => handleCellLongPress(vi, bi)}
                       >
-                        <View style={styles.barCellNotes}>
+                       <View style={styles.barCellNotes}>
                           {barEntries.length === 0 && !isActive ? (
                             <Text style={styles.emptyBarText}>tap to add</Text>
                           ) : (
                             <>
                               {barEntries.map((entry, ei) => (
-                                <View key={ei} style={styles.noteChip}>
-                                  <Text style={styles.noteChipText}>{entry}</Text>
+                                <View key={ei} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  {isActive && activeCell.noteIndex === ei && (
+                                    <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
+                                  )}
+                                  <View style={styles.noteChip}>
+                                    <Text style={styles.noteChipText}>{entry}</Text>
+                                  </View>
                                 </View>
                               ))}
-                              {isActive && (
+                              {isActive && activeCell.noteIndex === barEntries.length && (
                                 <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
                               )}
                             </>
@@ -571,7 +585,6 @@ export default function App() {
 
     return (
       <View style={styles.keyboard}>
-        {/* Status bar */}
         <View style={styles.kbStatusBar}>
           <Text style={styles.kbStatusText} numberOfLines={1}>
             {VOICES[voice]} | Bar {bar + 1} | {barBeats.toFixed(2)}/{required} | {remaining.toFixed(2)} left
@@ -587,7 +600,6 @@ export default function App() {
         {overflowWarning ? <Text style={styles.overflowWarning}>{overflowWarning}</Text> : null}
         {keyError ? <Text style={styles.keyError}>{keyError}</Text> : null}
 
-        {/* Text input */}
         <View style={styles.barInputRow}>
           <TextInput
             style={styles.barInput}
@@ -605,7 +617,6 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        {/* Navigation + copy/paste */}
         <View style={styles.navRow}>
           <TouchableOpacity style={styles.navBtn} onPress={moveLeft}>
             <Text style={styles.navBtnText}>← Prev</Text>
@@ -629,7 +640,6 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        {/* Standard Notes */}
         <Text style={styles.kbSectionLabel}>NOTES  (keyboard: d r m f s l t  |  1–5=duration  |  Enter=full)</Text>
         <View style={styles.noteRow}>
           {STANDARD_NOTES.map(n => (
@@ -643,7 +653,6 @@ export default function App() {
           ))}
         </View>
 
-        {/* Chromatic Toggle */}
         <TouchableOpacity style={styles.chromaticToggle} onPress={() => setShowChromatic(p => !p)}>
           <Text style={styles.chromaticToggleText}>
             {showChromatic ? '▲ Hide Chromatic' : '▼ Show Chromatic Notes (Di Ri Fi Si Li / Ra Me Se Le Te)'}
@@ -679,7 +688,6 @@ export default function App() {
           </View>
         )}
 
-        {/* Octave */}
         <Text style={styles.kbSectionLabel}>OCTAVE  (keyboard: ↑ ↓)</Text>
         <View style={styles.octaveRow}>
           <TouchableOpacity
@@ -696,7 +704,6 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        {/* Duration */}
         <Text style={styles.kbSectionLabel}>BEAT DURATION  (1=Full  2=Half  3=Qtr  4=3Qtr  5=Triplet)</Text>
         <View style={styles.durationRow}>
           {DURATIONS.map(d => {
@@ -715,7 +722,6 @@ export default function App() {
           })}
         </View>
 
-        {/* Hold and Rest */}
         <Text style={styles.kbSectionLabel}>HOLD & REST  (keyboard: - = Hold  x = Rest, then pick duration above)</Text>
         <View style={styles.extrasRow}>
           <TouchableOpacity
@@ -757,12 +763,7 @@ export default function App() {
         {renderPillRow(SIMPLE_TIMES, selectedTime, setSelectedTime)}
 
         <Text style={styles.label}>Tempo:</Text>
-        {renderPillRow(
-          TEMPOS,
-          selectedTempo,
-          setSelectedTempo,
-          t => `${t.name}\n${t.bpm} BPM`
-        )}
+        {renderPillRow(TEMPOS, selectedTempo, setSelectedTempo, t => `${t.name}\n${t.bpm} BPM`)}
 
         <Text style={styles.label}>Score Grid:</Text>
         <Text style={styles.hint}>
@@ -832,25 +833,20 @@ const C = {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.black },
   scrollContent: { padding: 20, alignItems: 'center' },
-
   headerBanner: { width: '100%', alignItems: 'center', paddingVertical: 24, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border },
   title: { fontSize: 32, fontWeight: 'bold', color: C.secondary, letterSpacing: 2, fontFamily: 'Georgia' },
   subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4, letterSpacing: 3, fontFamily: 'Georgia' },
-
   label: { alignSelf: 'flex-start', color: C.offWhite, fontWeight: 'bold', fontSize: 13, marginTop: 20, marginBottom: 6, letterSpacing: 1, fontFamily: 'Georgia' },
   hint: { alignSelf: 'flex-start', color: C.textSecondary, fontSize: 11, marginBottom: 8 },
-
   pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, backgroundColor: C.input, borderWidth: 1, borderColor: C.border },
   pillActive: { backgroundColor: C.crimson, borderColor: C.secondary },
   pillText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13, textAlign: 'center' },
   pillTextActive: { color: C.offWhite },
-
   voiceSelectorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 4 },
   voiceToggleBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: C.input, borderWidth: 1, borderColor: C.border },
   voiceToggleBtnActive: { backgroundColor: C.crimson, borderColor: C.secondary },
   voiceToggleText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13 },
   voiceToggleTextActive: { color: C.offWhite },
-
   gridContainer: { width: '100%', backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   gridHeaderRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: '#0a0f06' },
   voiceLabelBox: { width: 72, justifyContent: 'center', paddingLeft: 8 },
@@ -858,10 +854,8 @@ const styles = StyleSheet.create({
   barHeaderText: { color: C.secondary, fontSize: 11, fontWeight: 'bold', fontFamily: 'Georgia' },
   barPlayBtn: { backgroundColor: C.crimson, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   barPlayBtnText: { color: C.offWhite, fontSize: 10, fontWeight: 'bold' },
-
   voiceRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: C.border },
   voiceLabel: { color: C.secondary, fontWeight: 'bold', fontSize: 10, paddingTop: 10, letterSpacing: 1, fontFamily: 'Georgia' },
-
   barCell: { width: 130, minHeight: 72, padding: 6, borderLeftWidth: 1, borderLeftColor: C.border, justifyContent: 'space-between' },
   barCellActive: { backgroundColor: 'rgba(74,94,42,0.25)', borderLeftColor: C.secondary, borderLeftWidth: 2 },
   barCellNotes: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, flex: 1, alignItems: 'center' },
@@ -870,60 +864,47 @@ const styles = StyleSheet.create({
   noteChipText: { color: C.offWhite, fontSize: 12, fontWeight: 'bold', fontFamily: 'Georgia' },
   cursor: { color: C.secondary, fontSize: 18, fontWeight: 'bold', marginLeft: 1 },
   beatCounter: { fontSize: 10, fontWeight: 'bold', marginTop: 4 },
-
   barControlsRow: { flexDirection: 'row', width: '100%', marginTop: 14, gap: 10 },
   outlineBtn: { flex: 1, borderWidth: 1, borderColor: C.crimson, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   outlineBtnText: { color: C.secondary, fontWeight: 'bold', fontFamily: 'Georgia' },
-
   scanBtn: { width: '100%', marginTop: 20, borderWidth: 1, borderColor: C.secondary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderStyle: 'dashed' },
   scanBtnText: { color: C.secondary, fontWeight: 'bold', fontSize: 15, fontFamily: 'Georgia' },
   scanBtnSub: { color: C.textSecondary, fontSize: 11, marginTop: 2 },
-
   playBtn: { marginTop: 16, width: '100%', backgroundColor: C.crimson, paddingVertical: 18, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: C.secondary },
   playBtnDisabled: { opacity: 0.6 },
   playBtnText: { color: C.offWhite, fontSize: 18, fontWeight: 'bold', letterSpacing: 2, fontFamily: 'Georgia' },
   statusText: { marginTop: 14, fontSize: 14, textAlign: 'center', fontWeight: 'bold', fontFamily: 'Georgia' },
-
   keyboard: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#0a0f06', borderTopWidth: 2, borderTopColor: C.secondary, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 16 },
   kbStatusBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.input, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 4, borderWidth: 1, borderColor: C.border },
   kbStatusText: { color: C.offWhite, fontSize: 11, fontWeight: 'bold', flex: 1 },
   kbClose: { color: C.textSecondary, fontSize: 18, fontWeight: 'bold', paddingLeft: 8 },
-
   overflowWarning: { color: C.warning, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 4, backgroundColor: '#2a1a00', borderRadius: 6, padding: 4 },
   keyError: { color: C.error, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 4, backgroundColor: '#2a0010', borderRadius: 6, padding: 4 },
-
   barInputRow: { flexDirection: 'row', gap: 8, marginBottom: 6, alignItems: 'center' },
   barInput: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.secondary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, color: C.offWhite, fontSize: 14, fontFamily: 'Georgia' },
   barInputBtn: { backgroundColor: C.crimson, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.secondary },
   barInputBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 13 },
-
   navRow: { flexDirection: 'row', gap: 4, marginBottom: 4 },
   navBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 6, alignItems: 'center' },
   navBtnText: { color: C.secondary, fontWeight: 'bold', fontSize: 10 },
-
   kbSectionLabel: { color: C.textSecondary, fontSize: 9, fontWeight: 'bold', letterSpacing: 1, marginTop: 5, marginBottom: 3 },
-
   noteRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4, marginBottom: 2 },
   noteBtn: { flex: 1, backgroundColor: C.crimson, borderRadius: 8, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   noteBtnChromatic: { backgroundColor: '#3a4a1a' },
   noteBtnSelected: { backgroundColor: '#2a3a10', borderWidth: 2, borderColor: C.secondary },
   noteBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 14, fontFamily: 'Georgia' },
-
   chromaticToggle: { backgroundColor: C.input, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: C.border, marginTop: 4, marginBottom: 2, alignItems: 'center' },
   chromaticToggleText: { color: C.secondary, fontSize: 11, fontWeight: 'bold' },
-
   octaveRow: { flexDirection: 'row', gap: 8 },
   octaveBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.crimson, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   octaveBtnSelected: { backgroundColor: C.crimson, borderColor: C.secondary },
   octaveBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 12 },
-
   durationRow: { flexDirection: 'row', gap: 4 },
   durationBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 5, alignItems: 'center' },
   durationBtnDisabled: { opacity: 0.3 },
   durationBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 13 },
   durationBtnLabel: { color: C.secondary, fontSize: 9, marginTop: 1 },
   durationBtnSub: { color: C.textSecondary, fontSize: 8 },
-
   extrasRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
   extraBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   extraBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 12 },

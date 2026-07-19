@@ -37,6 +37,10 @@ def generate():
 
     score_text = data['score']
     voice = data.get('voice', 'all')
+    voices = data.get('voices', None)
+    # If multiple voices selected, override voice filter
+    if voices and isinstance(voices, list):
+     voice = voices  # pass list to generate function
     tempo_override = data.get('tempo', None)
 
     # Override tempo if provided
