@@ -69,9 +69,9 @@ def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT, voice_nam
         shifted_note = int(note) + (octave_shift * 12)
         shifted_note = max(0, min(127, shifted_note))
 
-        track.append(Message('note_on', note=shifted_note, velocity=80,
+        track.append(Message('note_on', note=shifted_note, velocity=95,
                               time=0, channel=channel))
-        track.append(Message('note_off', note=shifted_note, velocity=80,
+        track.append(Message('note_off', note=shifted_note, velocity=95,
                               time=duration_ticks, channel=channel))
         last_midi = shifted_note
 
@@ -131,7 +131,7 @@ if __name__ == '__main__':
 KEY: F_MAJOR
 TIME: 4/4
 TEMPO: 90
-SOPRANO: l.l:m.m:f | s:s:l:l |
+SOPRANO: l.l:m.m:f :r| s:s:l:l |
 ALTO: m:m:r:r | m:m:d:d |
 TENOR: s:f:m:r | d:t1:d:m |
 BASS: d:l1:d:t1 | d:-:-:- |
