@@ -22,10 +22,11 @@ def render_midi_to_audio(midi_path, output_path='output.wav'):
         FLUIDSYNTH_EXE,
         '-ni',
         '-g', '1.5',
+        '-o', 'synth.reverb.active=no',
         '-F', output_path,
         SOUNDFONT_PATH,
         midi_path
-    ]\
+    ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 

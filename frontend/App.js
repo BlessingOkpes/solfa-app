@@ -6,9 +6,10 @@ import {
 
 const API_URL = 'http://localhost:5000';
 
-const KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'Bb', 'Eb', 'Ab'];
+const KEYS = ['C', 'C#', 'D', 'E', 'F', 'F#', 'G', 'A', 'B', 'Bb', 'Eb', 'Ab'];
 const KEY_MAP = {
-  C: 'C_MAJOR', D: 'D_MAJOR', E: 'E_MAJOR', F: 'F_MAJOR', G: 'G_MAJOR',
+  C: 'C_MAJOR', 'C#': 'CS_MAJOR', D: 'D_MAJOR', E: 'E_MAJOR',
+  F: 'F_MAJOR', 'F#': 'FS_MAJOR', G: 'G_MAJOR',
   A: 'A_MAJOR', B: 'B_MAJOR', Bb: 'Bb_MAJOR', Eb: 'Eb_MAJOR', Ab: 'Ab_MAJOR',
 };
 
@@ -44,21 +45,70 @@ const DURATIONS = [
 
 function getEntryBeatValue(entry) {
   if (!entry) return 0;
-  if (entry === '-' || entry === 'x') return 1.0;
-  if (entry.startsWith('-') || entry.startsWith('x')) {
-    const suffix = entry.slice(1);
-    if (suffix === "''") return 0.333;
-    if (suffix === '.,') return 0.75;
-    if (suffix === '.') return 0.5;
-    if (suffix === ',') return 0.25;
+
+  function suffixValue(suf) {
+    if (suf === "''") return 0.333;
+    if (suf === '.,') return 0.75;
+    if (suf === '.') return 0.5;
+    if (suf === ',') return 0.25;
     return 1.0;
   }
-  if (entry.endsWith("''")) return 0.333;
-  if (entry.endsWith('.,')) return 0.75;
-  if (entry.endsWith('.')) return 0.5;
-  if (entry.endsWith(',')) return 0.25;
-  if (entry.endsWith(':')) return 1.0;
-  return 1.0;
+
+  const TWO_CHAR = ['di','ri','fi','si','li','ra','me','se','le','te'];
+  let i = 0;
+  let total = 0;
+
+  while (i < entry.length) {
+    const ch = entry[i];
+
+    if (ch === ':' || ch === '/') { i++; continue; }
+
+    if (ch === '-' || ch.toLowerCase() === 'x') {
+      i++;
+      let suf = '';
+      if (entry.slice(i, i + 2) === "''") { suf = "''"; i += 2; }
+      else if (entry.slice(i, i + 2) === '.,') { suf = '.,'; i += 2; }
+      else if (entry[i] === '.') { suf = '.'; i++; }
+      else if (entry[i] === ',') { suf = ','; i++; }
+      total += suffixValue(suf);
+      continue;
+    }
+
+    if (/[a-zA-Z]/.test(ch)) {
+      const two = entry.slice(i, i + 2).toLowerCase();
+      if (TWO_CHAR.includes(two)) i += 2;
+      else i += 1;
+
+      if (entry[i] === "'") i++;
+      else if (/[0-9]/.test(entry[i])) i++;
+
+      let suf = '';
+      if (entry.slice(i, i + 2) === "''") { suf = "''"; i += 2; }
+      else if (entry.slice(i, i + 2) === '.,') { suf = '.,'; i += 2; }
+      else if (entry[i] === '.') { suf = '.'; i++; }
+      else if (entry[i] === ',') { suf = ','; i++; }
+      total += suffixValue(suf);
+      continue;
+    }
+
+    i++;
+  }
+
+  return total;
+}
+
+function getOpenGroupTotalBeforeCursor(barEntries, cursorIndex) {
+  if (cursorIndex === 0) return 0;
+  const last = barEntries[cursorIndex - 1];
+  if (!last) return 0;
+  if (last.endsWith(':')) return 0;
+  let total = 0;
+  for (let i = cursorIndex - 1; i >= 0; i--) {
+    const e = barEntries[i];
+    if (e.endsWith(':')) break;
+    total += getEntryBeatValue(e);
+  }
+  return total;
 }
 
 function buildSolfaText(grid, key, timeSig, tempo, selectedVoices, barFilter) {
@@ -89,6 +139,8 @@ export default function App() {
   const [selectedTime, setSelectedTime] = useState('4/4');
   const [selectedTempo, setSelectedTempo] = useState(TEMPOS[2]);
   const [numBars, setNumBars] = useState(4);
+  const [isLooping, setIsLooping] = useState(false);
+  const [currentAudio, setCurrentAudio] = useState(null);
   const [grid, setGrid] = useState(makeEmptyGrid(4));
   const [activeCell, setActiveCell] = useState({ voice: 0, bar: 0, noteIndex: 0});
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -103,6 +155,7 @@ export default function App() {
   const [cursorBlink, setCursorBlink] = useState(true);
   const [overflowWarning, setOverflowWarning] = useState('');
   const [copiedBar, setCopiedBar] = useState(null);
+ 
 
   useEffect(() => {
     if (!keyboardVisible) return;
@@ -307,7 +360,7 @@ function addEntry(vi, bi, entry) {
       setStatusType('warning');
       return;
     }
-    const { voice, bar } = activeCell;
+    const { voice, bar, noteIndex } = activeCell;
     if (!checkOverflow(voice, bar, value)) return;
 
     let entry;
@@ -315,6 +368,13 @@ function addEntry(vi, bi, entry) {
       entry = `${pendingNote.syllable}${symbol}`;
     } else {
       entry = `${pendingNote.syllable}${pendingNote.octave || ''}${symbol}`;
+    }
+
+    const barEntries = getBar(voice, bar);
+    const openTotal = getOpenGroupTotalBeforeCursor(barEntries, noteIndex);
+    const groupSum = openTotal + value;
+    if (groupSum >= 1.0 - 0.001 && !entry.endsWith(':')) {
+      entry = entry + ':';
     }
 
     addEntry(voice, bar, entry);
@@ -327,7 +387,7 @@ function addEntry(vi, bi, entry) {
       const required = getRequiredBeats(selectedTime);
       const newBeats = getCurrentBarBeats(voice, bar) + value;
       if (newBeats >= required - 0.001 && bar + 1 < numBars) {
-        setActiveCell({ voice, bar: bar + 1 });
+        setActiveCell({ voice, bar: bar + 1, noteIndex: 0 });
       }
     }, 50);
   }
@@ -421,6 +481,8 @@ function addEntry(vi, bi, entry) {
       if (!response.ok) throw new Error('Server error');
       const blob = await response.blob();
       const audio = new window.Audio(URL.createObjectURL(blob));
+      audio.loop = isLooping;
+      setCurrentAudio(audio);
       audio.play();
       setStatusMessage(barFilter !== null ? `Playing Bar ${barFilter + 1} 🎵` : 'Playing 🎵');
       setStatusType('playing');
@@ -793,6 +855,21 @@ function addEntry(vi, bi, entry) {
           <Text style={styles.scanBtnSub}>Coming Soon 🚧</Text>
         </TouchableOpacity>
 
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 16, width: '100%' }}>
+          <TouchableOpacity
+            style={[styles.outlineBtn, isLooping && { backgroundColor: C.crimson }]}
+            onPress={() => setIsLooping(l => !l)}
+          >
+            <Text style={styles.outlineBtnText}>{isLooping ? '🔁 Loop: ON' : '🔁 Loop: OFF'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.outlineBtn}
+            onPress={() => { if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; } }}
+          >
+            <Text style={styles.outlineBtnText}>⏹ Stop</Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
           style={[styles.playBtn, isLoading && styles.playBtnDisabled]}
           onPress={() => playScore(null)}
@@ -817,12 +894,12 @@ function addEntry(vi, bi, entry) {
 }
 
 const C = {
-  black: '#0f120a',
+  black: '#000000',
   crimson: '#4a5e2a',
   offWhite: '#f5f0e8',
-  card: '#141a0d',
+  card: '#0d0d0d',
   input: '#0a0f06',
-  border: '#2a3a1a',
+  border: '#2a2a2a',
   success: '#06d6a0',
   warning: '#ffd60a',
   error: '#e63946',

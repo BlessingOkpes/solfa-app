@@ -89,7 +89,7 @@ def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT, voice_nam
 
     # Trailing silence so FluidSynth renders cleanly
     track.append(Message('note_off', note=0, velocity=0,
-                          time=ticks_per_beat * 2, channel=channel))
+                          time=200, channel=channel))
 
     return track
 
