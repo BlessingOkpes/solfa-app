@@ -596,37 +596,41 @@ function addEntry(vi, bi, entry) {
                     if (isOver) { counterColor = C.error; counterIcon = '❌'; }
 
                     return (
-                      <TouchableOpacity
-                        key={bi}
-                        style={[styles.barCell, isActive && styles.barCellActive]}
-                        onPress={() => handleCellTap(vi, bi)}
-                        onLongPress={() => handleCellLongPress(vi, bi)}
-                      >
-                       <View style={styles.barCellNotes}>
-                          {barEntries.length === 0 && !isActive ? (
-                            <Text style={styles.emptyBarText}>tap to add</Text>
-                          ) : (
-                            <>
-                              {barEntries.map((entry, ei) => (
-                                <View key={ei} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  {isActive && activeCell.noteIndex === ei && (
-                                    <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
-                                  )}
-                                  <View style={styles.noteChip}>
-                                    <Text style={styles.noteChipText}>{entry}</Text>
+                     <View key={bi} style={[styles.barCell, isActive && styles.barCellActive]}>
+                        <TouchableOpacity onPress={() => copyBar(vi, bi)} style={styles.barCopyBtn}>
+                          <Text style={styles.barCopyBtnText}>📋</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleCellTap(vi, bi)}
+                          onLongPress={() => handleCellLongPress(vi, bi)}
+                          style={{ flex: 1 }}
+                        >
+                          <View style={styles.barCellNotes}>
+                            {barEntries.length === 0 && !isActive ? (
+                              <Text style={styles.emptyBarText}>tap to add</Text>
+                            ) : (
+                              <>
+                                {barEntries.map((entry, ei) => (
+                                  <View key={ei} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    {isActive && activeCell.noteIndex === ei && (
+                                      <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
+                                    )}
+                                    <View style={styles.noteChip}>
+                                      <Text style={styles.noteChipText}>{entry}</Text>
+                                    </View>
                                   </View>
-                                </View>
-                              ))}
-                              {isActive && activeCell.noteIndex === barEntries.length && (
-                                <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
-                              )}
-                            </>
-                          )}
-                        </View>
-                        <Text style={[styles.beatCounter, { color: counterColor }]}>
-                          {counterIcon} {beats.toFixed(2)}/{required}
-                        </Text>
-                      </TouchableOpacity>
+                                ))}
+                                {isActive && activeCell.noteIndex === barEntries.length && (
+                                  <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
+                                )}
+                              </>
+                            )}
+                          </View>
+                          <Text style={[styles.beatCounter, { color: counterColor }]}>
+                            {counterIcon} {beats.toFixed(2)}/{required}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     );
                   })}
                 </View>
@@ -934,6 +938,8 @@ const styles = StyleSheet.create({
   voiceRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: C.border },
   voiceLabel: { color: C.secondary, fontWeight: 'bold', fontSize: 10, paddingTop: 10, letterSpacing: 1, fontFamily: 'Georgia' },
   barCell: { width: 130, minHeight: 72, padding: 6, borderLeftWidth: 1, borderLeftColor: C.border, justifyContent: 'space-between' },
+  barCopyBtn: { alignSelf: 'flex-end', paddingHorizontal: 4, paddingVertical: 2 },
+  barCopyBtnText: { fontSize: 12 },
   barCellActive: { backgroundColor: 'rgba(74,94,42,0.25)', borderLeftColor: C.secondary, borderLeftWidth: 2 },
   barCellNotes: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, flex: 1, alignItems: 'center' },
   emptyBarText: { color: '#2a3a1a', fontSize: 11, fontStyle: 'italic' },
