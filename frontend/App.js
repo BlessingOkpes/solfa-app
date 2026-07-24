@@ -145,6 +145,8 @@ export default function App() {
   const [activeCell, setActiveCell] = useState({ voice: 0, bar: 0, noteIndex: 0});
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectedVoices, setSelectedVoices] = useState(['all']);
+  const [soloVoices, setSoloVoices] = useState([]);
+  const [backgroundVolume, setBackgroundVolume] = useState(60);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Ready to play');
   const [statusType, setStatusType] = useState('ready');
@@ -405,6 +407,12 @@ function addEntry(vi, bi, entry) {
     });
   }
 
+  function toggleSolo(voice) {
+    setSoloVoices(prev =>
+     prev.includes(voice) ? prev.filter(v => v !== voice) : [...prev, voice]
+   );
+  }
+
   useEffect(() => {
     if (!keyboardVisible) return;
     let buffer = '';
@@ -467,6 +475,16 @@ function addEntry(vi, bi, entry) {
     setIsLoading(true);
     setStatusMessage(barFilter !== null ? `Playing Bar ${barFilter + 1}...` : 'Generating audio...');
     setStatusType('loading');
+
+    // Build per-voice volumes if any soloists are marked
+    let voiceVolumes = null;
+    if (soloVoices.length > 0) {
+      voiceVolumes = {};
+      ['SOPRANO', 'ALTO', 'TENOR', 'BASS'].forEach(v => {
+        voiceVolumes[v] = soloVoices.includes(v) ? 127 : backgroundVolume;
+      });
+    }
+
     try {
       const response = await fetch(`${API_URL}/api/generate`, {
         method: 'POST',
@@ -476,10 +494,20 @@ function addEntry(vi, bi, entry) {
           voice: selectedVoices.includes('all') ? 'all' : selectedVoices[0],
           voices: selectedVoices.includes('all') ? null : selectedVoices,
           tempo: selectedTempo.bpm,
+          voiceVolumes: voiceVolumes,
         }),
       });
       if (!response.ok) throw new Error('Server error');
-      const blob = await response.blob();
+     const blob = await response.blob();
+
+      // Stop and clean up any previous audio before starting new one
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio.loop = false;
+        currentAudio.src = '';
+      }
+
       const audio = new window.Audio(URL.createObjectURL(blob));
       audio.loop = isLooping;
       setCurrentAudio(audio);
@@ -538,16 +566,26 @@ function addEntry(vi, bi, entry) {
       <View style={styles.voiceSelectorRow}>
         {['all', ...VOICES].map(v => {
           const isSelected = selectedVoices.includes(v);
+          const isSolo = soloVoices.includes(v);
           return (
-            <TouchableOpacity
-              key={v}
-              style={[styles.voiceToggleBtn, isSelected && styles.voiceToggleBtnActive]}
-              onPress={() => toggleVoice(v)}
-            >
-              <Text style={[styles.voiceToggleText, isSelected && styles.voiceToggleTextActive]}>
-                {v}
-              </Text>
-            </TouchableOpacity>
+            <View key={v} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <TouchableOpacity
+                style={[styles.voiceToggleBtn, isSelected && styles.voiceToggleBtnActive]}
+                onPress={() => toggleVoice(v)}
+              >
+                <Text style={[styles.voiceToggleText, isSelected && styles.voiceToggleTextActive]}>
+                  {v}
+                </Text>
+              </TouchableOpacity>
+              {v !== 'all' && (
+                <TouchableOpacity
+                  onPress={() => toggleSolo(v)}
+                  style={{ paddingHorizontal: 4 }}
+                >
+                  <Text style={{ fontSize: 16, opacity: isSolo ? 1 : 0.3 }}>⭐</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           );
         })}
       </View>
@@ -851,6 +889,32 @@ function addEntry(vi, bi, entry) {
         <Text style={styles.hint}>Tap to toggle — select multiple voices at once</Text>
         {renderVoiceSelector()}
 
+        <Text style={{ color: C.textSecondary, fontSize: 11, marginBottom: 4 }}>
+          ⭐ = Solo (loud) • Tap the star next to a voice to make it the featured/soloist part while the rest stay soft in the background
+        </Text>
+        {soloVoices.length > 0 && (
+          <View style={{ width: '100%', marginBottom: 8 }}>
+            <Text style={{ color: C.textSecondary, fontSize: 11, marginBottom: 4 }}>
+              Background volume: {backgroundVolume}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {[20, 40, 60, 80, 100].map(v => (
+                <TouchableOpacity
+                  key={v}
+                  onPress={() => setBackgroundVolume(v)}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+                    backgroundColor: backgroundVolume === v ? C.crimson : C.input,
+                    borderWidth: 1, borderColor: C.border,
+                  }}
+                >
+                  <Text style={{ color: C.offWhite, fontSize: 11 }}>{v}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         <TouchableOpacity
           style={styles.scanBtn}
           onPress={() => { setStatusMessage('📷 Scan feature coming soon! 🚧'); setStatusType('warning'); }}
@@ -868,7 +932,16 @@ function addEntry(vi, bi, entry) {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.outlineBtn}
-            onPress={() => { if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; } }}
+            onPress={() => {
+              if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                currentAudio.loop = false;
+                currentAudio.src = '';
+              }
+              setCurrentAudio(null);
+              setIsLooping(false);
+            }}
           >
             <Text style={styles.outlineBtnText}>⏹ Stop</Text>
           </TouchableOpacity>

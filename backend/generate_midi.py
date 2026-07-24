@@ -93,7 +93,7 @@ def voice_to_midi_track(notes, channel, ticks_per_beat=TICKS_PER_BEAT, voice_nam
 
     return track
 
-def generate_midi_file(score_text, output_path='output.mid', voice_filter='all'):
+def generate_midi_file(score_text, output_path='output.mid', voice_filter='all', voice_volumes=None):
     """
     Parse solfa score text and write a complete SATB MIDI file to output_path.
     voice_filter can be 'all', a single voice name string, or a list of voice names.
@@ -127,6 +127,13 @@ def generate_midi_file(score_text, output_path='output.mid', voice_filter='all')
                                      voice_name=voice_name)
         track.insert(0, MetaMessage('track_name', name=voice_name, time=0))
         track.insert(1, Message('program_change', program=program,
+                                 channel=channel, time=0))
+
+        # Per-voice channel volume (MIDI CC 7) — soloist louder, rest quieter
+        volume = 100  # default when no solo selected
+        if voice_volumes and voice_name in voice_volumes:
+            volume = max(0, min(127, voice_volumes[voice_name]))
+        track.insert(2, Message('control_change', control=7, value=volume,
                                  channel=channel, time=0))
         midi_file.tracks.append(track)
 

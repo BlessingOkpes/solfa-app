@@ -58,10 +58,13 @@ def generate():
     unique_id = str(uuid.uuid4())[:8]
     midi_path = os.path.join(OUTPUT_DIR, f'{unique_id}.mid')
     wav_path = os.path.join(OUTPUT_DIR, f'{unique_id}.wav')
-
     try:
+        # Voice volumes for soloist feature — optional, sent from frontend
+        voice_volumes = data.get('voiceVolumes', None)
+
         # Generate MIDI
-        generate_midi_file(score_text, output_path=midi_path, voice_filter=voice)
+        generate_midi_file(score_text, output_path=midi_path, voice_filter=voice,
+                            voice_volumes=voice_volumes)
 
         # Render to WAV
         render_midi_to_audio(midi_path, output_path=wav_path)
