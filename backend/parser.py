@@ -9,8 +9,8 @@ SOLFA_DEGREES = {
 }
 
 KEY_ROOTS = {
-    'C_MAJOR': 60, 'D_MAJOR': 62, 'E_MAJOR': 64,
-    'F_MAJOR': 65, 'G_MAJOR': 67, 'A_MAJOR': 69,
+    'C_MAJOR': 60, 'CS_MAJOR': 61, 'D_MAJOR': 62, 'E_MAJOR': 64,
+    'F_MAJOR': 65, 'FS_MAJOR': 66, 'G_MAJOR': 67, 'A_MAJOR': 69,
     'B_MAJOR': 71, 'Bb_MAJOR': 70, 'Eb_MAJOR': 63,
     'Ab_MAJOR': 68,
 }
