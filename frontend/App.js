@@ -112,6 +112,9 @@ function getOpenGroupTotalBeforeCursor(barEntries, cursorIndex) {
 }
 
 function buildSolfaText(grid, key, timeSig, tempo, selectedVoices, barFilter) {
+  const requiredBeats = getRequiredBeats(timeSig);
+  const restBeatCount = Math.max(1, Math.round(requiredBeats));
+
   let text = `KEY: ${KEY_MAP[key]}\nTIME: ${timeSig}\nTEMPO: ${tempo}\n`;
   VOICES.forEach((voice, vi) => {
     const isAll = selectedVoices.includes('all');
@@ -122,13 +125,14 @@ function buildSolfaText(grid, key, timeSig, tempo, selectedVoices, barFilter) {
       if (bar.length > 0) {
         text += bar.join('') + ' | ';
       } else {
-         text += 'x: | ';
+        text += 'x:'.repeat(restBeatCount) + ' | ';
       }
     });
     text += '\n';
   });
   return text;
 }
+
 
 function makeEmptyGrid(n) {
   return Array(4).fill(null).map(() => Array(n).fill(null).map(() => []));
@@ -593,12 +597,13 @@ function addEntry(vi, bi, entry) {
   }
 
   function renderGrid() {
+    const required = getRequiredBeats(selectedTime);
     return (
       <View style={styles.gridContainer}>
-        <View style={styles.gridHeaderRow}>
-          <View style={styles.voiceLabelBox} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View>
+            <View style={styles.gridHeaderRow}>
+              <View style={styles.voiceLabelBox} />
               {Array.from({ length: numBars }).map((_, b) => (
                 <View key={b} style={styles.barHeader}>
                   <Text style={styles.barHeaderText}>Bar {b + 1}</Text>
@@ -608,74 +613,67 @@ function addEntry(vi, bi, entry) {
                 </View>
               ))}
             </View>
-          </ScrollView>
-        </View>
 
-        {VOICES.map((voice, vi) => {
-          const required = getRequiredBeats(selectedTime);
-          return (
-            <View key={vi} style={styles.voiceRow}>
-              <View style={styles.voiceLabelBox}>
-                <Text style={styles.voiceLabel}>{voice}</Text>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={{ flexDirection: 'row' }}>
-                  {Array.from({ length: numBars }).map((_, bi) => {
-                    const barEntries = getBar(vi, bi);
-                    const beats = getCurrentBarBeats(vi, bi);
-                    const isComplete = Math.abs(beats - required) < 0.01;
-                    const isOver = beats > required + 0.001;
-                    const isActive = activeCell.voice === vi && activeCell.bar === bi && keyboardVisible;
-
-                    let counterColor = C.textSecondary;
-                    let counterIcon = '○';
-                    if (beats > 0 && !isComplete) { counterColor = C.warning; counterIcon = '⚠️'; }
-                    if (isComplete) { counterColor = C.success; counterIcon = '✅'; }
-                    if (isOver) { counterColor = C.error; counterIcon = '❌'; }
-
-                    return (
-                     <View key={bi} style={[styles.barCell, isActive && styles.barCellActive]}>
-                        <TouchableOpacity onPress={() => copyBar(vi, bi)} style={styles.barCopyBtn}>
-                          <Text style={styles.barCopyBtnText}>📋</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleCellTap(vi, bi)}
-                          onLongPress={() => handleCellLongPress(vi, bi)}
-                          style={{ flex: 1 }}
-                        >
-                          <View style={styles.barCellNotes}>
-                            {barEntries.length === 0 && !isActive ? (
-                              <Text style={styles.emptyBarText}>tap to add</Text>
-                            ) : (
-                              <>
-                                {barEntries.map((entry, ei) => (
-                                  <View key={ei} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    {isActive && activeCell.noteIndex === ei && (
-                                      <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
-                                    )}
-                                    <View style={styles.noteChip}>
-                                      <Text style={styles.noteChipText}>{entry}</Text>
-                                    </View>
-                                  </View>
-                                ))}
-                                {isActive && activeCell.noteIndex === barEntries.length && (
-                                  <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
-                                )}
-                              </>
-                            )}
-                          </View>
-                          <Text style={[styles.beatCounter, { color: counterColor }]}>
-                            {counterIcon} {beats.toFixed(2)}/{required}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
+            {VOICES.map((voice, vi) => (
+              <View key={vi} style={styles.voiceRow}>
+                <View style={styles.voiceLabelBox}>
+                  <Text style={styles.voiceLabel}>{voice}</Text>
                 </View>
-              </ScrollView>
-            </View>
-          );
-        })}
+                {Array.from({ length: numBars }).map((_, bi) => {
+                  const barEntries = getBar(vi, bi);
+                  const beats = getCurrentBarBeats(vi, bi);
+                  const isComplete = Math.abs(beats - required) < 0.01;
+                  const isOver = beats > required + 0.001;
+                  const isActive = activeCell.voice === vi && activeCell.bar === bi && keyboardVisible;
+
+                  let counterColor = C.textSecondary;
+                  let counterIcon = '○';
+                  if (beats > 0 && !isComplete) { counterColor = C.warning; counterIcon = '⚠️'; }
+                  if (isComplete) { counterColor = C.success; counterIcon = '✅'; }
+                  if (isOver) { counterColor = C.error; counterIcon = '❌'; }
+
+                  return (
+                    <View key={bi} style={[styles.barCell, isActive && styles.barCellActive]}>
+                      <TouchableOpacity onPress={() => copyBar(vi, bi)} style={styles.barCopyBtn}>
+                        <Text style={styles.barCopyBtnText}>📋</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleCellTap(vi, bi)}
+                        onLongPress={() => handleCellLongPress(vi, bi)}
+                        style={{ flex: 1 }}
+                      >
+                        <View style={styles.barCellNotes}>
+                          {barEntries.length === 0 && !isActive ? (
+                            <Text style={styles.emptyBarText}>tap to add</Text>
+                          ) : (
+                            <>
+                              {barEntries.map((entry, ei) => (
+                                <View key={ei} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  {isActive && activeCell.noteIndex === ei && (
+                                    <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
+                                  )}
+                                  <View style={styles.noteChip}>
+                                    <Text style={styles.noteChipText}>{entry}</Text>
+                                  </View>
+                                </View>
+                              ))}
+                              {isActive && activeCell.noteIndex === barEntries.length && (
+                                <Text style={[styles.cursor, { opacity: cursorBlink ? 1 : 0 }]}>|</Text>
+                              )}
+                            </>
+                          )}
+                        </View>
+                        <Text style={[styles.beatCounter, { color: counterColor }]}>
+                          {counterIcon} {beats.toFixed(2)}/{required}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -1003,7 +1001,7 @@ const styles = StyleSheet.create({
   voiceToggleTextActive: { color: C.offWhite },
   gridContainer: { width: '100%', backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   gridHeaderRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: '#0a0f06' },
-  voiceLabelBox: { width: 72, justifyContent: 'center', paddingLeft: 8 },
+  voiceLabelBox: { width: 72, justifyContent: 'center', paddingLeft: 8, position: 'sticky', left: 0, backgroundColor: C.card, zIndex: 2 },
   barHeader: { width: 130, alignItems: 'center', paddingVertical: 6, borderLeftWidth: 1, borderLeftColor: C.border, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 8 },
   barHeaderText: { color: C.secondary, fontSize: 11, fontWeight: 'bold', fontFamily: 'Georgia' },
   barPlayBtn: { backgroundColor: C.crimson, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
