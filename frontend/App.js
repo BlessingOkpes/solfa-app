@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { Audio } from 'expo-av';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity,
-  ActivityIndicator, TextInput,
+  ActivityIndicator, TextInput, Platform,
 } from 'react-native';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = Platform.OS === 'web' ? 'http://localhost:5000' : 'http://10.26.92.71:5000';
 
 const KEYS = ['C', 'C#', 'D', 'E', 'F', 'F#', 'G', 'A', 'B', 'Bb', 'Eb', 'Ab'];
 const KEY_MAP = {
@@ -419,6 +420,7 @@ function addEntry(vi, bi, entry) {
 
   useEffect(() => {
     if (!keyboardVisible) return;
+    if (Platform.OS !== 'web') return;
     let buffer = '';
     let bufferTimer = null;
 
@@ -504,18 +506,37 @@ function addEntry(vi, bi, entry) {
       if (!response.ok) throw new Error('Server error');
      const blob = await response.blob();
 
-      // Stop and clean up any previous audio before starting new one
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-        currentAudio.loop = false;
-        currentAudio.src = '';
-      }
+      if (Platform.OS === 'web') {
+        // Stop and clean up any previous audio before starting new one
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+          currentAudio.loop = false;
+          currentAudio.src = '';
+        }
+        const audio = new window.Audio(URL.createObjectURL(blob));
+        audio.loop = isLooping;
+        setCurrentAudio(audio);
+        audio.play();
+      } else {
+        // Native (phone) playback using expo-av
+        if (currentAudio) {
+          await currentAudio.stopAsync();
+          await currentAudio.unloadAsync();
+        }
 
-      const audio = new window.Audio(URL.createObjectURL(blob));
-      audio.loop = isLooping;
-      setCurrentAudio(audio);
-      audio.play();
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64data = reader.result;
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: base64data },
+            { isLooping: isLooping }
+          );
+          setCurrentAudio(sound);
+          await sound.playAsync();
+        };
+        reader.readAsDataURL(blob);
+      }
       setStatusMessage(barFilter !== null ? `Playing Bar ${barFilter + 1} 🎵` : 'Playing 🎵');
       setStatusType('playing');
     } catch (err) {
@@ -932,10 +953,15 @@ function addEntry(vi, bi, entry) {
             style={styles.outlineBtn}
             onPress={() => {
               if (currentAudio) {
-                currentAudio.pause();
-                currentAudio.currentTime = 0;
-                currentAudio.loop = false;
-                currentAudio.src = '';
+                if (Platform.OS === 'web') {
+                  currentAudio.pause();
+                  currentAudio.currentTime = 0;
+                  currentAudio.loop = false;
+                  currentAudio.src = '';
+                } else {
+                  currentAudio.stopAsync();
+                  currentAudio.unloadAsync();
+                }
               }
               setCurrentAudio(null);
               setIsLooping(false);
