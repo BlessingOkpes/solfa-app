@@ -4,7 +4,7 @@
   "main": "index.js",
   "dependencies": {
     "expo": "~56.0.12",
-    "expo-av": "^16.0.8",
+    "expo-audio": "^57.0.3",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",

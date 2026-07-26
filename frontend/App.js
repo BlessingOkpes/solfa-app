@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Audio } from 'expo-av';
+import { createAudioPlayer } from 'expo-audio';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity,
   ActivityIndicator, TextInput, Platform,
@@ -519,24 +519,25 @@ function addEntry(vi, bi, entry) {
         setCurrentAudio(audio);
         audio.play();
       } else {
-        // Native (phone) playback using expo-av
+        // Native (phone) playback using expo-audio
         if (currentAudio) {
-          await currentAudio.stopAsync();
-          await currentAudio.unloadAsync();
+          try {
+            currentAudio.pause();
+            currentAudio.remove();
+          } catch (e) {}
         }
 
         const reader = new FileReader();
-        reader.onloadend = async () => {
+        reader.onloadend = () => {
           const base64data = reader.result;
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: base64data },
-            { isLooping: isLooping }
-          );
-          setCurrentAudio(sound);
-          await sound.playAsync();
+          const player = createAudioPlayer({ uri: base64data });
+          player.loop = isLooping;
+          setCurrentAudio(player);
+          player.play();
         };
         reader.readAsDataURL(blob);
       }
+
       setStatusMessage(barFilter !== null ? `Playing Bar ${barFilter + 1} 🎵` : 'Playing 🎵');
       setStatusType('playing');
     } catch (err) {
@@ -959,8 +960,10 @@ function addEntry(vi, bi, entry) {
                   currentAudio.loop = false;
                   currentAudio.src = '';
                 } else {
-                  currentAudio.stopAsync();
-                  currentAudio.unloadAsync();
+                  try {
+                    currentAudio.pause();
+                    currentAudio.remove();
+                  } catch (e) {}
                 }
               }
               setCurrentAudio(null);
