@@ -523,7 +523,7 @@ function addEntry(vi, bi, entry) {
   }
 
   function handleAddBar() {
-    if (numBars >= 16) return;
+    if (numBars >= 200) return;
     setGrid(prev => prev.map(v => [...v, []]));
     setNumBars(n => n + 1);
   }
@@ -877,7 +877,7 @@ function addEntry(vi, bi, entry) {
         {renderGrid()}
 
         <View style={styles.barControlsRow}>
-          <TouchableOpacity style={styles.outlineBtn} onPress={handleAddBar} disabled={numBars >= 16}>
+          <TouchableOpacity style={styles.outlineBtn} onPress={handleAddBar} disabled={numBars >= 200}>
             <Text style={styles.outlineBtnText}>+ Add Bar</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.outlineBtn} onPress={handleRemoveBar} disabled={numBars <= 1}>
