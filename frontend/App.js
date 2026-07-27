@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createAudioPlayer } from 'expo-audio';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity,
   ActivityIndicator, TextInput, Platform,
@@ -162,7 +163,45 @@ export default function App() {
   const [cursorBlink, setCursorBlink] = useState(true);
   const [overflowWarning, setOverflowWarning] = useState('');
   const [copiedBar, setCopiedBar] = useState(null);
- 
+
+  // Load saved score when app starts
+  useEffect(() => {
+    async function loadSavedScore() {
+      try {
+        const saved = await AsyncStorage.getItem('solfa_saved_score');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.grid) setGrid(parsed.grid);
+          if (parsed.numBars) setNumBars(parsed.numBars);
+          if (parsed.selectedKey) setSelectedKey(parsed.selectedKey);
+          if (parsed.selectedTime) setSelectedTime(parsed.selectedTime);
+          if (parsed.selectedTempo) setSelectedTempo(parsed.selectedTempo);
+        }
+      } catch (e) {
+        console.log('Could not load saved score', e);
+      }
+    }
+    loadSavedScore();
+  }, []);
+
+  // Auto-save score whenever it changes
+  useEffect(() => {
+    async function saveScore() {
+      try {
+        const dataToSave = {
+          grid,
+          numBars,
+          selectedKey,
+          selectedTime,
+          selectedTempo,
+        };
+        await AsyncStorage.setItem('solfa_saved_score', JSON.stringify(dataToSave));
+      } catch (e) {
+        console.log('Could not save score', e);
+      }
+    }
+    saveScore();
+  }, [grid, numBars, selectedKey, selectedTime, selectedTempo]);
 
   useEffect(() => {
     if (!keyboardVisible) return;
