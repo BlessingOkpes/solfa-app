@@ -9,18 +9,16 @@
     "ios": {
       "supportsTablet": true
     },
-
-     "android": {
-     "adaptiveIcon": {
-       "backgroundColor": "#E6F4FE",
-       "foregroundImage": "./assets/android-icon-foreground.png",
-       "backgroundImage": "./assets/android-icon-background.png",
-       "monochromeImage": "./assets/android-icon-monochrome.png"
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-     "package": "com.blessingnancy.solfaharmony",
-     "usesCleartextTraffic": true
+      "package": "com.blessingnancy.solfaharmony",
+      "usesCleartextTraffic": true
     },
-    
     "web": {
       "favicon": "./assets/favicon.png"
     },
@@ -28,6 +26,16 @@
       "eas": {
         "projectId": "d15818d7-5643-459e-85a9-79e8f9fc19f3"
       }
-    }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }
