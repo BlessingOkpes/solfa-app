@@ -9,6 +9,7 @@
     "ios": {
       "supportsTablet": true
     },
+
      "android": {
      "adaptiveIcon": {
        "backgroundColor": "#E6F4FE",
@@ -19,6 +20,7 @@
      "package": "com.blessingnancy.solfaharmony",
      "usesCleartextTraffic": true
     },
+    
     "web": {
       "favicon": "./assets/favicon.png"
     },

@@ -6,7 +6,7 @@ import {
   ActivityIndicator, TextInput, Platform,
 } from 'react-native';
 
-const API_URL = Platform.OS === 'web' ? 'http://localhost:5000' : 'http://10.26.92.71:5000';
+const API_URL = Platform.OS === 'web' ? 'http://localhost:5000' : 'http://10.40.200.71:5000';
 
 const KEYS = ['C', 'C#', 'D', 'E', 'F', 'F#', 'G', 'A', 'B', 'Bb', 'Eb', 'Ab'];
 const KEY_MAP = {
