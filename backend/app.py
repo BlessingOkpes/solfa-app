@@ -75,6 +75,8 @@ def generate():
                          download_name='output.wav')
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # prints full traceback to logs
         return jsonify({'error': str(e)}), 500
 
 
