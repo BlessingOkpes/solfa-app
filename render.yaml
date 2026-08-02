@@ -1,9 +1,7 @@
 services:
   - type: web
     name: solfa-backend
-    env: python
+    env: docker
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: "apt-get update && apt-get install -y fluidsynth && pip install -r requirements.txt"
-    startCommand: "gunicorn app:app"
