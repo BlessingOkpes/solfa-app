@@ -543,10 +543,9 @@ function addEntry(vi, bi, entry) {
         }),
       });
       if (!response.ok) throw new Error('Server error');
-     const blob = await response.blob();
 
       if (Platform.OS === 'web') {
-        // Stop and clean up any previous audio before starting new one
+        const blob = await response.blob();
         if (currentAudio) {
           currentAudio.pause();
           currentAudio.currentTime = 0;
@@ -558,7 +557,6 @@ function addEntry(vi, bi, entry) {
         setCurrentAudio(audio);
         audio.play();
       } else {
-        // Native (phone) playback using expo-audio
         if (currentAudio) {
           try {
             currentAudio.pause();
@@ -566,15 +564,39 @@ function addEntry(vi, bi, entry) {
           } catch (e) {}
         }
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64data = reader.result;
-          const player = createAudioPlayer({ uri: base64data });
-          player.loop = isLooping;
-          setCurrentAudio(player);
-          player.play();
-        };
-        reader.readAsDataURL(blob);
+        const arrayBuffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+
+        const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        function bytesToBase64(bytes) {
+          let result = '';
+          let i;
+          for (i = 0; i + 2 < bytes.length; i += 3) {
+            result += BASE64_CHARS[bytes[i] >> 2];
+            result += BASE64_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+            result += BASE64_CHARS[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
+            result += BASE64_CHARS[bytes[i + 2] & 63];
+          }
+          const remaining = bytes.length - i;
+          if (remaining === 1) {
+            result += BASE64_CHARS[bytes[i] >> 2];
+            result += BASE64_CHARS[(bytes[i] & 3) << 4];
+            result += '==';
+          } else if (remaining === 2) {
+            result += BASE64_CHARS[bytes[i] >> 2];
+            result += BASE64_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+            result += BASE64_CHARS[(bytes[i + 1] & 15) << 2];
+            result += '=';
+          }
+          return result;
+        }
+
+        const base64data = 'data:audio/wav;base64,' + bytesToBase64(bytes);
+
+        const player = createAudioPlayer({ uri: base64data });
+        player.loop = isLooping;
+        setCurrentAudio(player);
+        player.play();
       }
 
       setStatusMessage(barFilter !== null ? `Playing Bar ${barFilter + 1} 🎵` : 'Playing 🎵');
