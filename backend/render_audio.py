@@ -1,13 +1,18 @@
 import os
+import platform
+import shutil
 import subprocess
 
 SOUNDFONT_PATH = os.path.join(os.path.dirname(__file__), 'soundfonts', 'MuseScore_General.sf2')
 
-FLUIDSYNTH_EXE = os.path.join(os.path.expanduser('~'), 
-                               'Downloads',
-                               'fluidsynth-v2.5.5-win10-x64-cpp11',
-                               'fluidsynth-v2.5.5-win10-x64-cpp11',
-                               'bin', 'fluidsynth.exe')
+if platform.system() == 'Windows':
+    FLUIDSYNTH_EXE = os.path.join(os.path.expanduser('~'), 
+                                   'Downloads',
+                                   'fluidsynth-v2.5.5-win10-x64-cpp11',
+                                   'fluidsynth-v2.5.5-win10-x64-cpp11',
+                                   'bin', 'fluidsynth.exe')
+else:
+    FLUIDSYNTH_EXE = 'fluidsynth'
 
 
 def render_midi_to_audio(midi_path, output_path='output.wav'):
@@ -15,8 +20,11 @@ def render_midi_to_audio(midi_path, output_path='output.wav'):
         raise FileNotFoundError(f"Soundfont not found at: {SOUNDFONT_PATH}")
     if not os.path.exists(midi_path):
         raise FileNotFoundError(f"MIDI file not found at: {midi_path}")
-    if not os.path.exists(FLUIDSYNTH_EXE):
+
+    if platform.system() == 'Windows' and not os.path.exists(FLUIDSYNTH_EXE):
         raise FileNotFoundError(f"FluidSynth not found at: {FLUIDSYNTH_EXE}")
+    if platform.system() != 'Windows' and shutil.which(FLUIDSYNTH_EXE) is None:
+        raise FileNotFoundError(f"FluidSynth not found on system PATH: {FLUIDSYNTH_EXE}")
 
     cmd = [
         FLUIDSYNTH_EXE,
