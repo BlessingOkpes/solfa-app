@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createAudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity,
-  ActivityIndicator, TextInput, Platform,
+  ActivityIndicator, TextInput, Platform, Animated, Switch,
 } from 'react-native';
 
 const API_URL = 'https://solfa-backend-m5ij.onrender.com';
@@ -140,7 +140,37 @@ function makeEmptyGrid(n) {
   return Array(4).fill(null).map(() => Array(n).fill(null).map(() => []));
 }
 
+function PressableScale({ style, children, disabled, ...rest }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  function onPressIn() {
+    if (disabled) return;
+    Animated.timing(scale, { toValue: 0.98, duration: 100, useNativeDriver: true }).start();
+  }
+  function onPressOut() {
+    if (disabled) return;
+    Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true }).start();
+  }
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      disabled={disabled}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={style}
+      {...rest}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 export default function App() {
+  const [isLight, setIsLight] = useState(false);
+  const C = isLight ? LIGHT_THEME : DARK_THEME;
+  const styles = useMemo(() => createStyles(C), [isLight]);
+
   const [selectedKey, setSelectedKey] = useState('F');
   const [selectedTime, setSelectedTime] = useState('4/4');
   const [selectedTempo, setSelectedTempo] = useState(TEMPOS[2]);
@@ -632,7 +662,7 @@ function addEntry(vi, bi, entry) {
           {items.map(item => {
             const isSelected = item === selected;
             return (
-              <TouchableOpacity
+              <PressableScale
                 key={String(labelFn ? item.name : item)}
                 style={[styles.pill, isSelected && styles.pillActive]}
                 onPress={() => onSelect(item)}
@@ -640,7 +670,7 @@ function addEntry(vi, bi, entry) {
                 <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
                   {labelFn ? labelFn(item) : String(item)}
                 </Text>
-              </TouchableOpacity>
+              </PressableScale>
             );
           })}
         </View>
@@ -655,22 +685,29 @@ function addEntry(vi, bi, entry) {
           const isSelected = selectedVoices.includes(v);
           const isSolo = soloVoices.includes(v);
           return (
-            <View key={v} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <TouchableOpacity
+            <View key={v} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <PressableScale
                 style={[styles.voiceToggleBtn, isSelected && styles.voiceToggleBtnActive]}
                 onPress={() => toggleVoice(v)}
               >
                 <Text style={[styles.voiceToggleText, isSelected && styles.voiceToggleTextActive]}>
                   {v}
                 </Text>
-              </TouchableOpacity>
+              </PressableScale>
               {v !== 'all' && (
-                <TouchableOpacity
+                <PressableScale
                   onPress={() => toggleSolo(v)}
-                  style={{ paddingHorizontal: 4 }}
+                  style={{ padding: 8, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
                 >
-                  <Text style={{ fontSize: 16, opacity: isSolo ? 1 : 0.3 }}>⭐</Text>
-                </TouchableOpacity>
+                  <Text style={{
+                    fontSize: 16,
+                    color: C.gold,
+                    opacity: isSolo ? 1 : 0.55,
+                    textShadowColor: isSolo ? 'rgba(255,201,74,0.55)' : 'transparent',
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: isSolo ? 4 : 0,
+                  }}>⭐</Text>
+                </PressableScale>
               )}
             </View>
           );
@@ -690,9 +727,9 @@ function addEntry(vi, bi, entry) {
               {Array.from({ length: numBars }).map((_, b) => (
                 <View key={b} style={styles.barHeader}>
                   <Text style={styles.barHeaderText}>Bar {b + 1}</Text>
-                  <TouchableOpacity style={styles.barPlayBtn} onPress={() => playScore(b)}>
+                  <PressableScale style={styles.barPlayBtn} onPress={() => playScore(b)}>
                     <Text style={styles.barPlayBtnText}>▶</Text>
-                  </TouchableOpacity>
+                  </PressableScale>
                 </View>
               ))}
             </View>
@@ -717,10 +754,11 @@ function addEntry(vi, bi, entry) {
 
                   return (
                     <View key={bi} style={[styles.barCell, isActive && styles.barCellActive]}>
-                      <TouchableOpacity onPress={() => copyBar(vi, bi)} style={styles.barCopyBtn}>
-                        <Text style={styles.barCopyBtnText}>📋</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
+                      <PressableScale onPress={() => copyBar(vi, bi)} style={styles.barCopyBtn}>
+                        <View style={styles.copyIconBack} />
+                        <View style={styles.copyIconFront} />
+                      </PressableScale>
+                      <PressableScale
                         onPress={() => handleCellTap(vi, bi)}
                         onLongPress={() => handleCellLongPress(vi, bi)}
                         style={{ flex: 1 }}
@@ -749,7 +787,7 @@ function addEntry(vi, bi, entry) {
                         <Text style={[styles.beatCounter, { color: counterColor }]}>
                           {counterIcon} {beats.toFixed(2)}/{required}
                         </Text>
-                      </TouchableOpacity>
+                      </PressableScale>
                     </View>
                   );
                 })}
@@ -777,9 +815,9 @@ function addEntry(vi, bi, entry) {
               ? `  •  "${pendingNote.syllable}${pendingNote.octave || ''}" — pick duration`
               : '  •  Select note'}
           </Text>
-          <TouchableOpacity onPress={() => setKeyboardVisible(false)}>
+          <PressableScale onPress={() => setKeyboardVisible(false)}>
             <Text style={styles.kbClose}>✕</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
         {overflowWarning ? <Text style={styles.overflowWarning}>{overflowWarning}</Text> : null}
@@ -797,77 +835,77 @@ function addEntry(vi, bi, entry) {
             onSubmitEditing={commitBarInput}
             returnKeyType="done"
           />
-          <TouchableOpacity style={styles.barInputBtn} onPress={commitBarInput}>
+          <PressableScale style={styles.barInputBtn} onPress={commitBarInput}>
             <Text style={styles.barInputBtnText}>✓</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
         <View style={styles.navRow}>
-          <TouchableOpacity style={styles.navBtn} onPress={moveLeft}>
+          <PressableScale style={styles.navBtn} onPress={moveLeft}>
             <Text style={styles.navBtnText}>← Prev</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={() => copyBar(voice, bar)}>
+          </PressableScale>
+          <PressableScale style={styles.navBtn} onPress={() => copyBar(voice, bar)}>
             <Text style={styles.navBtnText}>📋 Copy</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={() => pasteBar(voice, bar)}>
+          </PressableScale>
+          <PressableScale style={styles.navBtn} onPress={() => pasteBar(voice, bar)}>
             <Text style={[styles.navBtnText, { color: copiedBar ? C.secondary : C.textSecondary }]}>
               📌 Paste
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={() => deleteLastEntry(voice, bar)}>
+          </PressableScale>
+          <PressableScale style={styles.navBtn} onPress={() => deleteLastEntry(voice, bar)}>
             <Text style={styles.navBtnText}>⌫ Del</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={() => clearBar(voice, bar)}>
+          </PressableScale>
+          <PressableScale style={styles.navBtn} onPress={() => clearBar(voice, bar)}>
             <Text style={[styles.navBtnText, { color: C.error }]}>🗑</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={moveRight}>
+          </PressableScale>
+          <PressableScale style={styles.navBtn} onPress={moveRight}>
             <Text style={styles.navBtnText}>Next →</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
         <Text style={styles.kbSectionLabel}>NOTES  (keyboard: d r m f s l t  |  1–5=duration  |  Enter=full)</Text>
         <View style={styles.noteRow}>
           {STANDARD_NOTES.map(n => (
-            <TouchableOpacity
+            <PressableScale
               key={n}
               style={[styles.noteBtn, pendingNote?.syllable === n && styles.noteBtnSelected]}
               onPress={() => handleNoteTap(n)}
             >
               <Text style={styles.noteBtnText}>{n}</Text>
-            </TouchableOpacity>
+            </PressableScale>
           ))}
         </View>
 
-        <TouchableOpacity style={styles.chromaticToggle} onPress={() => setShowChromatic(p => !p)}>
+        <PressableScale style={styles.chromaticToggle} onPress={() => setShowChromatic(p => !p)}>
           <Text style={styles.chromaticToggleText}>
             {showChromatic ? '▲ Hide Chromatic' : '▼ Show Chromatic Notes (Di Ri Fi Si Li / Ra Me Se Le Te)'}
           </Text>
-        </TouchableOpacity>
+        </PressableScale>
 
         {showChromatic && (
           <View>
             <Text style={styles.kbSectionLabel}>ASCENDING (sharps)</Text>
             <View style={styles.noteRow}>
               {CHROMATIC_ASC.map(n => (
-                <TouchableOpacity
+                <PressableScale
                   key={n}
                   style={[styles.noteBtn, styles.noteBtnChromatic, pendingNote?.syllable === n && styles.noteBtnSelected]}
                   onPress={() => handleNoteTap(n)}
                 >
                   <Text style={styles.noteBtnText}>{n}</Text>
-                </TouchableOpacity>
+                </PressableScale>
               ))}
             </View>
             <Text style={styles.kbSectionLabel}>DESCENDING (flats)</Text>
             <View style={styles.noteRow}>
               {CHROMATIC_DESC.map(n => (
-                <TouchableOpacity
+                <PressableScale
                   key={n}
                   style={[styles.noteBtn, styles.noteBtnChromatic, pendingNote?.syllable === n && styles.noteBtnSelected]}
                   onPress={() => handleNoteTap(n)}
                 >
                   <Text style={styles.noteBtnText}>{n}</Text>
-                </TouchableOpacity>
+                </PressableScale>
               ))}
             </View>
           </View>
@@ -875,18 +913,18 @@ function addEntry(vi, bi, entry) {
 
         <Text style={styles.kbSectionLabel}>OCTAVE  (keyboard: ↑ ↓)</Text>
         <View style={styles.octaveRow}>
-          <TouchableOpacity
+          <PressableScale
             style={[styles.octaveBtn, pendingNote?.octave === "'" && styles.octaveBtnSelected]}
             onPress={() => handleOctaveTap('upper')}
           >
             <Text style={styles.octaveBtnText}>↑ Upper</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </PressableScale>
+          <PressableScale
             style={[styles.octaveBtn, pendingNote?.octave === '1' && styles.octaveBtnSelected]}
             onPress={() => handleOctaveTap('lower')}
           >
             <Text style={styles.octaveBtnText}>↓ Lower</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
         <Text style={styles.kbSectionLabel}>BEAT DURATION  (1=Full  2=Half  3=Qtr  4=3Qtr  5=Triplet)</Text>
@@ -894,7 +932,7 @@ function addEntry(vi, bi, entry) {
           {DURATIONS.map(d => {
             const wouldOverflow = d.value > remaining + 0.001;
             return (
-              <TouchableOpacity
+              <PressableScale
                 key={d.symbol}
                 style={[styles.durationBtn, wouldOverflow && styles.durationBtnDisabled]}
                 onPress={() => handleDurationTap(d.symbol, d.value)}
@@ -902,27 +940,27 @@ function addEntry(vi, bi, entry) {
                 <Text style={styles.durationBtnText}>{d.symbol}</Text>
                 <Text style={styles.durationBtnLabel}>{d.label}</Text>
                 <Text style={styles.durationBtnSub}>{d.sub}</Text>
-              </TouchableOpacity>
+              </PressableScale>
             );
           })}
         </View>
 
         <Text style={styles.kbSectionLabel}>HOLD & REST  (keyboard: - = Hold  x = Rest, then pick duration above)</Text>
         <View style={styles.extrasRow}>
-          <TouchableOpacity
+          <PressableScale
             style={[styles.extraBtn, pendingNote?.syllable === '-' && styles.noteBtnSelected]}
             onPress={() => handleSpecialNoteTap('hold')}
           >
             <Text style={styles.extraBtnText}>— Hold</Text>
             <Text style={styles.extraBtnSub}>pick duration →</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </PressableScale>
+          <PressableScale
             style={[styles.extraBtn, pendingNote?.syllable === 'x' && styles.noteBtnSelected]}
             onPress={() => handleSpecialNoteTap('rest')}
           >
             <Text style={styles.extraBtnText}>x Rest</Text>
             <Text style={styles.extraBtnSub}>pick duration →</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
       </View>
     );
@@ -937,8 +975,25 @@ function addEntry(vi, bi, entry) {
     <View style={styles.root}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.headerBanner}>
-          <Text style={styles.title}>🎵 Solfa Harmony</Text>
-          <Text style={styles.subtitle}>SATB Vocal Harmony Generator</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerSpacer} />
+            <View style={styles.headerTitleBlock}>
+              <Text style={styles.title}>Solfa Harmony</Text>
+              <Text style={styles.subtitle}>SATB VOCAL HARMONY GENERATOR</Text>
+            </View>
+            <View style={styles.themeToggleCorner}>
+              <Text style={styles.themeToggleLabel}>Dark</Text>
+              <Switch
+                value={isLight}
+                onValueChange={setIsLight}
+                trackColor={{ false: C.input, true: C.crimson }}
+                thumbColor={isLight ? C.secondary : C.textSecondary}
+                ios_backgroundColor={C.input}
+                style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+              />
+              <Text style={styles.themeToggleLabel}>Light</Text>
+            </View>
+          </View>
         </View>
 
         <Text style={styles.label}>Select Key:</Text>
@@ -958,12 +1013,12 @@ function addEntry(vi, bi, entry) {
         {renderGrid()}
 
         <View style={styles.barControlsRow}>
-          <TouchableOpacity style={styles.outlineBtn} onPress={handleAddBar} disabled={numBars >= 200}>
+          <PressableScale style={styles.outlineBtn} onPress={handleAddBar} disabled={numBars >= 200}>
             <Text style={styles.outlineBtnText}>+ Add Bar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.outlineBtn} onPress={handleRemoveBar} disabled={numBars <= 1}>
+          </PressableScale>
+          <PressableScale style={styles.outlineBtn} onPress={handleRemoveBar} disabled={numBars <= 1}>
             <Text style={styles.outlineBtnText}>− Remove Bar</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
         <Text style={styles.label}>Select Voice(s) to Play:</Text>
@@ -980,7 +1035,7 @@ function addEntry(vi, bi, entry) {
             </Text>
             <View style={{ flexDirection: 'row', gap: 6 }}>
               {[20, 40, 60, 80, 100].map(v => (
-                <TouchableOpacity
+                <PressableScale
                   key={v}
                   onPress={() => setBackgroundVolume(v)}
                   style={{
@@ -990,28 +1045,28 @@ function addEntry(vi, bi, entry) {
                   }}
                 >
                   <Text style={{ color: C.offWhite, fontSize: 11 }}>{v}</Text>
-                </TouchableOpacity>
+                </PressableScale>
               ))}
             </View>
           </View>
         )}
 
-        <TouchableOpacity
+        <PressableScale
           style={styles.scanBtn}
           onPress={() => { setStatusMessage('📷 Scan feature coming soon! 🚧'); setStatusType('warning'); }}
         >
           <Text style={styles.scanBtnText}>📷 Scan Typed Score</Text>
           <Text style={styles.scanBtnSub}>Coming Soon 🚧</Text>
-        </TouchableOpacity>
+        </PressableScale>
 
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 16, width: '100%' }}>
-          <TouchableOpacity
+          <PressableScale
             style={[styles.outlineBtn, isLooping && { backgroundColor: C.crimson }]}
             onPress={() => setIsLooping(l => !l)}
           >
             <Text style={styles.outlineBtnText}>{isLooping ? '🔁 Loop: ON' : '🔁 Loop: OFF'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </PressableScale>
+          <PressableScale
             style={styles.outlineBtn}
             onPress={() => {
               if (currentAudio) {
@@ -1032,10 +1087,10 @@ function addEntry(vi, bi, entry) {
             }}
           >
             <Text style={styles.outlineBtnText}>⏹ Stop</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
 
-        <TouchableOpacity
+        <PressableScale
           style={[styles.playBtn, isLoading && styles.playBtnDisabled]}
           onPress={() => playScore(null)}
           disabled={isLoading}
@@ -1044,7 +1099,7 @@ function addEntry(vi, bi, entry) {
             ? <ActivityIndicator color={C.offWhite} />
             : <Text style={styles.playBtnText}>▶ Play Score</Text>
           }
-        </TouchableOpacity>
+        </PressableScale>
 
         <Text style={[styles.statusText, { color: statusColorMap[statusType] || C.success }]}>
           {statusMessage}
@@ -1058,99 +1113,151 @@ function addEntry(vi, bi, entry) {
   );
 }
 
-const C = {
-  black: '#000000',
-  crimson: '#4a5e2a',
-  offWhite: '#f5f0e8',
-  card: '#0d0d0d',
-  input: '#0a0f06',
-  border: '#2a2a2a',
-  success: '#06d6a0',
-  warning: '#ffd60a',
+const DARK_THEME = {
+  black: '#100B13',
+  crimson: '#5C2A52',
+  offWhite: '#FFFFFF',
+  card: '#1C1620',
+  input: '#251E29',
+  border: '#332A38',
+  borderStrong: '#453A4C',
+  success: '#3DD57F',
+  warning: '#ffb020',
   error: '#e63946',
-  secondary: '#c9a040',
-  textSecondary: '#7a8a6a',
+  secondary: '#E39163',
+  onSecondary: '#2A1608',
+  textSecondary: '#AFA0B8',
+  textFaint: '#6E6377',
+  wineRing: '#D17FB3',
+  wineText: '#E8B9D6',
+  cardA: '#3B1F3E',
+  cardB: '#7A3A5F',
+  gold: '#FFC94A',
 };
 
-const styles = StyleSheet.create({
+const LIGHT_THEME = {
+  black: '#F5EEE6',
+  crimson: '#E3C6D8',
+  offWhite: '#241A20',
+  card: '#EEE3DA',
+  input: '#E6D8CE',
+  border: '#D9C7BB',
+  borderStrong: '#C7B0A2',
+  success: '#1E9D5C',
+  warning: '#B8860B',
+  error: '#B0292F',
+  secondary: '#A8502A',
+  onSecondary: '#FFFFFF',
+  textSecondary: '#8A7581',
+  textFaint: '#B0A0AA',
+  wineRing: '#8B3A5E',
+  wineText: '#7A2E52',
+  cardA: '#EAD2DB',
+  cardB: '#DBBECB',
+  gold: '#B8860B',
+};
+
+function createStyles(C) {
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: C.black },
   scrollContent: { padding: 20, alignItems: 'center' },
-  headerBanner: { width: '100%', alignItems: 'center', paddingVertical: 24, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border },
-  title: { fontSize: 32, fontWeight: 'bold', color: C.secondary, letterSpacing: 2, fontFamily: 'Georgia' },
-  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4, letterSpacing: 3, fontFamily: 'Georgia' },
-  label: { alignSelf: 'flex-start', color: C.offWhite, fontWeight: 'bold', fontSize: 13, marginTop: 20, marginBottom: 6, letterSpacing: 1, fontFamily: 'Georgia' },
-  hint: { alignSelf: 'flex-start', color: C.textSecondary, fontSize: 11, marginBottom: 8 },
-  pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, backgroundColor: C.input, borderWidth: 1, borderColor: C.border },
-  pillActive: { backgroundColor: C.crimson, borderColor: C.secondary },
+  headerBanner: { width: '100%', paddingVertical: 18, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+  headerSpacer: { width: 88 },
+  headerTitleBlock: { flex: 1, alignItems: 'center' },
+  themeToggleCorner: { width: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 },
+  themeToggleLabel: { color: C.textSecondary, fontSize: 8.5, fontWeight: 'bold', letterSpacing: 0.3, fontFamily: 'Georgia' },
+  title: { fontSize: 25, fontWeight: '900', color: C.offWhite, fontFamily: 'Georgia' },
+  subtitle: { fontSize: 10.5, color: C.textSecondary, marginTop: 15, letterSpacing: 1.5, fontFamily: 'Georgia' },
+  label: { alignSelf: 'flex-start', color: C.offWhite, fontWeight: 'bold', fontSize: 14, marginTop: 26, marginBottom: 10, letterSpacing: 0.4, fontFamily: 'Georgia' },
+  hint: { alignSelf: 'flex-start', color: C.textSecondary, fontSize: 11, marginBottom: 10, lineHeight: 16 },
+  pill: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 14, backgroundColor: C.input, borderWidth: 1, borderColor: C.borderStrong },
+  pillActive: {
+    backgroundColor: C.crimson, borderWidth: 2, borderColor: C.wineRing,
+    shadowColor: C.wineRing, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
+  },
   pillText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13, textAlign: 'center' },
   pillTextActive: { color: C.offWhite },
-  voiceSelectorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 4 },
-  voiceToggleBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: C.input, borderWidth: 1, borderColor: C.border },
-  voiceToggleBtnActive: { backgroundColor: C.crimson, borderColor: C.secondary },
+  voiceSelectorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, width: '100%', marginBottom: 4, justifyContent: 'center' },
+  voiceToggleBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 18, backgroundColor: C.input, borderWidth: 1, borderColor: C.borderStrong },
+  voiceToggleBtnActive: {
+    backgroundColor: C.crimson, borderColor: C.wineRing,
+    shadowColor: C.wineRing, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
+  },
   voiceToggleText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13 },
   voiceToggleTextActive: { color: C.offWhite },
-  gridContainer: { width: '100%', backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
-  gridHeaderRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: '#0a0f06' },
+  gridContainer: { width: '100%', backgroundColor: C.card, borderRadius: 22, borderWidth: 1, borderColor: C.borderStrong, overflow: 'hidden' },
+  gridHeaderRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.borderStrong, backgroundColor: C.input },
   voiceLabelBox: { width: 72, justifyContent: 'center', paddingLeft: 8, position: 'sticky', left: 0, backgroundColor: C.card, zIndex: 2 },
-  barHeader: { width: 130, alignItems: 'center', paddingVertical: 6, borderLeftWidth: 1, borderLeftColor: C.border, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 8 },
-  barHeaderText: { color: C.secondary, fontSize: 11, fontWeight: 'bold', fontFamily: 'Georgia' },
-  barPlayBtn: { backgroundColor: C.crimson, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  barHeader: { width: 130, alignItems: 'center', paddingVertical: 8, borderLeftWidth: 1, borderLeftColor: C.border, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 },
+  barHeaderText: { color: C.textSecondary, fontSize: 11, fontWeight: 'bold', fontFamily: 'Georgia' },
+  barPlayBtn: { backgroundColor: C.crimson, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
   barPlayBtnText: { color: C.offWhite, fontSize: 10, fontWeight: 'bold' },
   voiceRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: C.border },
-  voiceLabel: { color: C.secondary, fontWeight: 'bold', fontSize: 10, paddingTop: 10, letterSpacing: 1, fontFamily: 'Georgia' },
-  barCell: { width: 130, minHeight: 72, padding: 6, borderLeftWidth: 1, borderLeftColor: C.border, justifyContent: 'space-between' },
-  barCopyBtn: { alignSelf: 'flex-end', paddingHorizontal: 4, paddingVertical: 2 },
-  barCopyBtnText: { fontSize: 12 },
-  barCellActive: { backgroundColor: 'rgba(74,94,42,0.25)', borderLeftColor: C.secondary, borderLeftWidth: 2 },
-  barCellNotes: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, flex: 1, alignItems: 'center' },
-  emptyBarText: { color: '#2a3a1a', fontSize: 11, fontStyle: 'italic' },
-  noteChip: { backgroundColor: '#1a2a0d', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, borderWidth: 1, borderColor: C.border },
+  voiceLabel: { width: 72, color: C.textSecondary, fontWeight: 'bold', fontSize: 11, paddingVertical: 16, paddingHorizontal: 8, letterSpacing: 0.5, fontFamily: 'Georgia', textAlign: 'center' },
+  barCell: { width: 130, minHeight: 84, padding: 10, borderLeftWidth: 1, borderLeftColor: C.border, justifyContent: 'space-between' },
+  barCopyBtn: { position: 'absolute', top: 4, right: 4, padding: 6, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  barCopyBtnText: { fontSize: 12, color: C.textSecondary },
+  copyIconBack: { position: 'absolute', top: 6, left: 8, width: 9, height: 9, borderWidth: 1.3, borderColor: C.textSecondary, borderRadius: 2 },
+  copyIconFront: { position: 'absolute', top: 9, left: 5, width: 9, height: 9, borderWidth: 1.3, borderColor: C.textSecondary, borderRadius: 2, backgroundColor: C.card },
+  barCellActive: { backgroundColor: 'rgba(92,42,82,0.2)', borderLeftColor: C.wineRing, borderLeftWidth: 2 },
+  barCellNotes: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, flex: 1, alignItems: 'center' },
+  emptyBarText: { color: C.textFaint, fontSize: 11, fontStyle: 'italic' },
+  noteChip: { backgroundColor: C.crimson, borderRadius: 12, paddingHorizontal: 9, paddingVertical: 3, borderWidth: 1, borderColor: C.wineRing },
   noteChipText: { color: C.offWhite, fontSize: 12, fontWeight: 'bold', fontFamily: 'Georgia' },
-  cursor: { color: C.secondary, fontSize: 18, fontWeight: 'bold', marginLeft: 1 },
-  beatCounter: { fontSize: 10, fontWeight: 'bold', marginTop: 4 },
-  barControlsRow: { flexDirection: 'row', width: '100%', marginTop: 14, gap: 10 },
-  outlineBtn: { flex: 1, borderWidth: 1, borderColor: C.crimson, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  cursor: { color: C.wineRing, fontSize: 18, fontWeight: 'bold', marginLeft: 1 },
+  beatCounter: { fontSize: 10, fontWeight: 'bold', marginTop: 6 },
+  barControlsRow: { flexDirection: 'row', width: '100%', marginTop: 18, gap: 10 },
+  outlineBtn: { flex: 1, borderWidth: 1.5, borderColor: C.secondary, borderRadius: 18, paddingVertical: 11, alignItems: 'center' },
   outlineBtnText: { color: C.secondary, fontWeight: 'bold', fontFamily: 'Georgia' },
-  scanBtn: { width: '100%', marginTop: 20, borderWidth: 1, borderColor: C.secondary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderStyle: 'dashed' },
+  scanBtn: { width: '100%', marginTop: 28, borderWidth: 1, borderColor: C.secondary, borderRadius: 18, paddingVertical: 14, alignItems: 'center', borderStyle: 'dashed' },
   scanBtnText: { color: C.secondary, fontWeight: 'bold', fontSize: 15, fontFamily: 'Georgia' },
-  scanBtnSub: { color: C.textSecondary, fontSize: 11, marginTop: 2 },
-  playBtn: { marginTop: 16, width: '100%', backgroundColor: C.crimson, paddingVertical: 18, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: C.secondary },
+  scanBtnSub: { color: C.textFaint, fontSize: 11, marginTop: 3 },
+  playBtn: {
+    marginTop: 20, width: '100%', backgroundColor: C.crimson, paddingVertical: 18, borderRadius: 20, alignItems: 'center', borderWidth: 1, borderColor: C.wineRing,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 14, elevation: 5,
+  },
   playBtnDisabled: { opacity: 0.6 },
-  playBtnText: { color: C.offWhite, fontSize: 18, fontWeight: 'bold', letterSpacing: 2, fontFamily: 'Georgia' },
-  statusText: { marginTop: 14, fontSize: 14, textAlign: 'center', fontWeight: 'bold', fontFamily: 'Georgia' },
-  keyboard: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#0a0f06', borderTopWidth: 2, borderTopColor: C.secondary, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 16 },
-  kbStatusBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.input, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 4, borderWidth: 1, borderColor: C.border },
+  playBtnText: { color: C.offWhite, fontSize: 17, fontWeight: 'bold', letterSpacing: 1, fontFamily: 'Georgia' },
+  statusText: { marginTop: 14, fontSize: 14, textAlign: 'center', fontWeight: 'bold', fontFamily: 'Georgia', paddingBottom: 20 },
+  keyboard: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.input, borderTopWidth: 1, borderTopColor: C.borderStrong,
+    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 22, borderTopLeftRadius: 26, borderTopRightRadius: 26,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.28, shadowRadius: 24, elevation: 12,
+  },
+  kbStatusBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 9, marginBottom: 12, borderWidth: 1, borderColor: C.border },
   kbStatusText: { color: C.offWhite, fontSize: 11, fontWeight: 'bold', flex: 1 },
-  kbClose: { color: C.textSecondary, fontSize: 18, fontWeight: 'bold', paddingLeft: 8 },
-  overflowWarning: { color: C.warning, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 4, backgroundColor: '#2a1a00', borderRadius: 6, padding: 4 },
-  keyError: { color: C.error, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 4, backgroundColor: '#2a0010', borderRadius: 6, padding: 4 },
-  barInputRow: { flexDirection: 'row', gap: 8, marginBottom: 6, alignItems: 'center' },
-  barInput: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.secondary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, color: C.offWhite, fontSize: 14, fontFamily: 'Georgia' },
-  barInputBtn: { backgroundColor: C.crimson, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.secondary },
-  barInputBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 13 },
-  navRow: { flexDirection: 'row', gap: 4, marginBottom: 4 },
-  navBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 6, alignItems: 'center' },
-  navBtnText: { color: C.secondary, fontWeight: 'bold', fontSize: 10 },
-  kbSectionLabel: { color: C.textSecondary, fontSize: 9, fontWeight: 'bold', letterSpacing: 1, marginTop: 5, marginBottom: 3 },
-  noteRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4, marginBottom: 2 },
-  noteBtn: { flex: 1, backgroundColor: C.crimson, borderRadius: 8, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: C.border },
-  noteBtnChromatic: { backgroundColor: '#3a4a1a' },
-  noteBtnSelected: { backgroundColor: '#2a3a10', borderWidth: 2, borderColor: C.secondary },
-  noteBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 14, fontFamily: 'Georgia' },
-  chromaticToggle: { backgroundColor: C.input, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: C.border, marginTop: 4, marginBottom: 2, alignItems: 'center' },
-  chromaticToggleText: { color: C.secondary, fontSize: 11, fontWeight: 'bold' },
-  octaveRow: { flexDirection: 'row', gap: 8 },
-  octaveBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.crimson, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
-  octaveBtnSelected: { backgroundColor: C.crimson, borderColor: C.secondary },
+  kbClose: { color: C.textSecondary, fontSize: 18, fontWeight: 'bold', padding: 8, width: 32, height: 32, textAlign: 'center' },
+  overflowWarning: { color: C.warning, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 6, backgroundColor: C.input, borderRadius: 10, padding: 6 },
+  keyError: { color: C.error, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 6, backgroundColor: C.input, borderRadius: 10, padding: 6 },
+  barInputRow: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center' },
+  barInput: { flex: 1, backgroundColor: C.black, borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, color: C.offWhite, fontSize: 14, fontFamily: 'Courier New' },
+  barInputBtn: { backgroundColor: C.secondary, borderRadius: 14, width: 44, height: 40, alignItems: 'center', justifyContent: 'center' },
+  barInputBtnText: { color: C.onSecondary, fontWeight: 'bold', fontSize: 13 },
+  navRow: { flexDirection: 'row', gap: 4, marginBottom: 12, flexWrap: 'wrap' },
+  navBtn: { flex: 1, minWidth: 64, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 9, alignItems: 'center' },
+  navBtnText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 10 },
+  kbSectionLabel: { color: C.textSecondary, fontSize: 9, fontWeight: 'bold', letterSpacing: 1.2, marginTop: 10, marginBottom: 5 },
+  noteRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, marginBottom: 8 },
+  noteBtn: { flex: 1, backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 10, minHeight: 57, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderStrong },
+  noteBtnChromatic: { borderColor: C.wineRing },
+  noteBtnSelected: { backgroundColor: C.offWhite, borderColor: C.offWhite },
+  noteBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 14, fontFamily: 'Courier New' },
+  chromaticToggle: { backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: C.wineRing, borderStyle: 'dashed', marginTop: 8, marginBottom: 8, alignItems: 'center' },
+  chromaticToggleText: { color: C.wineText, fontSize: 11, fontWeight: 'bold' },
+  octaveRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  octaveBtn: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 9, alignItems: 'center' },
+  octaveBtnSelected: { backgroundColor: C.crimson, borderColor: C.wineRing },
   octaveBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 12 },
-  durationRow: { flexDirection: 'row', gap: 4 },
-  durationBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 5, alignItems: 'center' },
-  durationBtnDisabled: { opacity: 0.3 },
+  durationRow: { flexDirection: 'row', gap: 4, marginBottom: 10 },
+  durationBtn: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 11, minHeight: 57, alignItems: 'center', justifyContent: 'center' },
+  durationBtnDisabled: { opacity: 0.5 },
   durationBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 13 },
-  durationBtnLabel: { color: C.secondary, fontSize: 9, marginTop: 1 },
-  durationBtnSub: { color: C.textSecondary, fontSize: 8 },
+  durationBtnLabel: { color: C.textSecondary, fontSize: 9, marginTop: 4 },
+  durationBtnSub: { color: C.textFaint, fontSize: 8, marginTop: 3 },
   extrasRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
-  extraBtn: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  extraBtn: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 9, alignItems: 'center' },
   extraBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 12 },
-  extraBtnSub: { color: C.textSecondary, fontSize: 9, marginTop: 2 },
-});
+  extraBtnSub: { color: C.textFaint, fontSize: 9, marginTop: 3 },
+  });
+}
