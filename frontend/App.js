@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createAudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  StyleSheet, Text, View, ScrollView, TouchableOpacity,
-  ActivityIndicator, TextInput, Platform, Animated, Switch,
+  StyleSheet, Text, View, ScrollView, Pressable,
+  ActivityIndicator, TextInput, Platform, Animated, useWindowDimensions, UIManager, findNodeHandle,
 } from 'react-native';
 
 const API_URL = 'https://solfa-backend-m5ij.onrender.com';
@@ -140,8 +142,12 @@ function makeEmptyGrid(n) {
   return Array(4).fill(null).map(() => Array(n).fill(null).map(() => []));
 }
 
+const WINE_ACCENT = '#D17FB3';
+const WINE_TINT = 'rgba(209,127,179,0.09)';
+
 function PressableScale({ style, children, disabled, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const [hovered, setHovered] = useState(false);
   function onPressIn() {
     if (disabled) return;
     Animated.timing(scale, { toValue: 0.98, duration: 100, useNativeDriver: true }).start();
@@ -150,23 +156,47 @@ function PressableScale({ style, children, disabled, ...rest }) {
     if (disabled) return;
     Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true }).start();
   }
+  const webHover = Platform.OS === 'web' && hovered && !disabled;
   return (
-    <TouchableOpacity
-      activeOpacity={0.85}
+    <Pressable
       disabled={disabled}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
-      style={style}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={[
+        style,
+        Platform.OS === 'web' && {
+          outlineWidth: 1,
+          outlineColor: 'transparent',
+          outlineStyle: 'solid',
+          outlineOffset: 0,
+          transitionProperty: 'outline-color, background-color, box-shadow',
+          transitionDuration: '200ms',
+        },
+        webHover && { outlineColor: WINE_ACCENT },
+      ]}
       {...rest}
     >
       <Animated.View style={{ transform: [{ scale }] }}>
         {children}
       </Animated.View>
-    </TouchableOpacity>
+      {webHover && (
+        <View pointerEvents="none" style={styles_hoverOverlay} />
+      )}
+    </Pressable>
   );
 }
 
+const styles_hoverOverlay = {
+  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+  backgroundColor: WINE_TINT, borderRadius: 14,
+};
+
 export default function App() {
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && windowWidth >= 900;
   const [isLight, setIsLight] = useState(false);
   const C = isLight ? LIGHT_THEME : DARK_THEME;
   const styles = useMemo(() => createStyles(C), [isLight]);
@@ -193,6 +223,55 @@ export default function App() {
   const [cursorBlink, setCursorBlink] = useState(true);
   const [overflowWarning, setOverflowWarning] = useState('');
   const [copiedBar, setCopiedBar] = useState(null);
+  const [barInputFocused, setBarInputFocused] = useState(false);
+  const [barInputHovered, setBarInputHovered] = useState(false);
+  const pageScrollRef = useRef(null);
+  const pageScrollY = useRef(0);
+  const gridScrollRef = useRef(null);
+  const cellRefs = useRef({});
+  const BAR_CELL_WIDTH = 130;
+  const [panelPos, setPanelPos] = useState(null);
+  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, startTop: 0, startLeft: 0 });
+
+  // Desktop-only: drag handling for the floating note-editor panel
+  useEffect(() => {
+    if (!isDesktop) return;
+    const PANEL_WIDTH = 480;
+    function onMouseMove(e) {
+      if (!dragRef.current.dragging) return;
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      const newLeft = Math.min(Math.max(0, dragRef.current.startLeft + dx), Math.max(0, windowWidth - PANEL_WIDTH));
+      const newTop = Math.min(Math.max(0, dragRef.current.startTop + dy), Math.max(0, windowHeight - 80));
+      setPanelPos({ top: newTop, left: newLeft });
+    }
+    function onMouseUp() { dragRef.current.dragging = false; }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [isDesktop, windowWidth, windowHeight]);
+
+  // Theme the browser scrollbar on web (React Native has no scrollbar style API)
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const styleId = 'solfa-scrollbar-theme';
+    let styleTag = document.getElementById(styleId);
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = styleId;
+      document.head.appendChild(styleTag);
+    }
+    styleTag.textContent = `
+      ::-webkit-scrollbar { width: 7px; height: 7px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: ${C.borderStrong}; border-radius: 10px; }
+      ::-webkit-scrollbar-thumb:hover { background: ${C.wineText}; }
+      * { scrollbar-width: thin; scrollbar-color: ${C.borderStrong} transparent; }
+    `;
+  }, [isLight]);
 
   // Load saved score when app starts
   useEffect(() => {
@@ -305,6 +384,41 @@ function addEntry(vi, bi, entry) {
     setBarInputText('');
     setOverflowWarning('');
     setKeyboardVisible(true);
+    if (isDesktop && !panelPos) {
+      setPanelPos({ top: Math.max(40, windowHeight - 520), left: Math.max(0, (windowWidth - 480) / 2) });
+    }
+    // Give the keyboard panel a frame to mount, then scroll the tapped bar into view.
+    requestAnimationFrame(() => {
+      // Horizontal: scroll the grid so bar `bi` is fully visible (fixed cell width, deterministic offset).
+      const xTarget = Math.max(0, bi * BAR_CELL_WIDTH - 24);
+      gridScrollRef.current?.scrollTo({ x: xTarget, animated: true });
+
+      // Vertical: measure the tapped cell relative to the outer page ScrollView's content,
+      // then scroll just enough so it clears the fixed bottom keyboard panel.
+      const key = `${vi}_${bi}`;
+      const cellNode = cellRefs.current[key];
+      const scrollNode = pageScrollRef.current;
+      if (Platform.OS !== 'web' && cellNode && scrollNode) {
+        const scrollHandle = findNodeHandle(scrollNode);
+        const cellHandle = findNodeHandle(cellNode);
+        if (scrollHandle && cellHandle && UIManager.measureLayout) {
+          UIManager.measureLayout(
+            cellHandle,
+            scrollHandle,
+            () => {}, // measurement failed - skip vertical scroll, horizontal still applies
+            (left, top, width, height) => {
+              const keyboardPanelHeight = isDesktop ? 0 : Math.min(420, windowHeight * 0.55);
+              const visibleTop = pageScrollY.current + 90; // clear of the sticky header
+              const visibleBottom = pageScrollY.current + windowHeight - keyboardPanelHeight - 16;
+              const cellBottom = top + height;
+              if (cellBottom > visibleBottom || top < visibleTop) {
+                scrollNode.scrollTo({ y: Math.max(0, top - 100), animated: true });
+              }
+            }
+          );
+        }
+      }
+    });
   }
 
   function handleCellLongPress(vi, bi) {
@@ -584,6 +698,11 @@ function addEntry(vi, bi, entry) {
         }
         const audio = new window.Audio(URL.createObjectURL(blob));
         audio.loop = isLooping;
+        audio.onended = () => {
+          setStatusMessage('Ready to play');
+          setStatusType('ready');
+          setCurrentAudio(null);
+        };
         setCurrentAudio(audio);
         audio.play();
       } else {
@@ -625,6 +744,14 @@ function addEntry(vi, bi, entry) {
 
         const player = createAudioPlayer({ uri: base64data });
         player.loop = isLooping;
+        const sub = player.addListener('playbackStatusUpdate', (status) => {
+          if (status.didJustFinish && !player.loop) {
+            setStatusMessage('Ready to play');
+            setStatusType('ready');
+            setCurrentAudio(null);
+            sub.remove();
+          }
+        });
         setCurrentAudio(player);
         player.play();
       }
@@ -655,21 +782,33 @@ function addEntry(vi, bi, entry) {
     });
   }
 
-  function renderPillRow(items, selected, onSelect, labelFn) {
+  function renderPillRow(items, selected, onSelect, labelFn, stackFraction) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%', marginBottom: 4 }}>
-        <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
+        <View style={{ flexDirection: 'row', gap: 12, paddingVertical: 8, paddingHorizontal: 2 }}>
           {items.map(item => {
             const isSelected = item === selected;
+            const label = labelFn ? labelFn(item) : String(item);
             return (
               <PressableScale
                 key={String(labelFn ? item.name : item)}
                 style={[styles.pill, isSelected && styles.pillActive]}
                 onPress={() => onSelect(item)}
               >
-                <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
-                  {labelFn ? labelFn(item) : String(item)}
-                </Text>
+                {stackFraction ? (
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={[styles.pillText, isSelected && styles.pillTextActive, { lineHeight: 14 }]}>
+                      {label.split('/')[0]}
+                    </Text>
+                    <Text style={[styles.pillText, isSelected && styles.pillTextActive, { lineHeight: 14 }]}>
+                      {label.split('/')[1]}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
+                    {label}
+                  </Text>
+                )}
               </PressableScale>
             );
           })}
@@ -720,7 +859,7 @@ function addEntry(vi, bi, entry) {
     const required = getRequiredBeats(selectedTime);
     return (
       <View style={styles.gridContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView ref={gridScrollRef} horizontal showsHorizontalScrollIndicator={false}>
           <View>
             <View style={styles.gridHeaderRow}>
               <View style={styles.voiceLabelBox} />
@@ -737,7 +876,7 @@ function addEntry(vi, bi, entry) {
             {VOICES.map((voice, vi) => (
               <View key={vi} style={styles.voiceRow}>
                 <View style={styles.voiceLabelBox}>
-                  <Text style={styles.voiceLabel}>{voice}</Text>
+                  <Text style={styles.voiceLabel} numberOfLines={1}>{voice}</Text>
                 </View>
                 {Array.from({ length: numBars }).map((_, bi) => {
                   const barEntries = getBar(vi, bi);
@@ -753,7 +892,11 @@ function addEntry(vi, bi, entry) {
                   if (isOver) { counterColor = C.error; counterIcon = '❌'; }
 
                   return (
-                    <View key={bi} style={[styles.barCell, isActive && styles.barCellActive]}>
+                    <View
+                      key={bi}
+                      ref={(el) => { cellRefs.current[`${vi}_${bi}`] = el; }}
+                      style={[styles.barCell, isActive && styles.barCellActive]}
+                    >
                       <PressableScale onPress={() => copyBar(vi, bi)} style={styles.barCopyBtn}>
                         <View style={styles.copyIconBack} />
                         <View style={styles.copyIconFront} />
@@ -807,25 +950,55 @@ function addEntry(vi, bi, entry) {
     const remaining = required - barBeats;
 
     return (
-      <View style={styles.keyboard}>
-        <View style={styles.kbStatusBar}>
+      <View style={[
+        styles.keyboard,
+        { paddingBottom: 22 + insets.bottom },
+        isDesktop && panelPos && {
+          position: 'fixed', left: panelPos.left, top: panelPos.top, right: 'auto', bottom: 'auto',
+          width: 480, maxWidth: 480, borderRadius: 26, borderBottomLeftRadius: 26, borderBottomRightRadius: 26,
+          maxHeight: windowHeight - panelPos.top - 24, overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+          maxHeight: windowHeight - panelPos.top - 24, overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+        },
+      ]}>
+        <View
+          style={[styles.kbStatusBar, isDesktop && { cursor: 'grab' }]}
+          {...(isDesktop ? {
+            onMouseDown: (e) => {
+              dragRef.current = {
+                dragging: true,
+                startX: e.clientX,
+                startY: e.clientY,
+                startTop: panelPos?.top ?? 0,
+                startLeft: panelPos?.left ?? 0,
+              };
+            },
+          } : {})}
+        >
           <Text style={styles.kbStatusText} numberOfLines={1}>
             {VOICES[voice]} | Bar {bar + 1} | {barBeats.toFixed(2)}/{required} | {remaining.toFixed(2)} left
             {pendingNote?.syllable
               ? `  •  "${pendingNote.syllable}${pendingNote.octave || ''}" — pick duration`
               : '  •  Select note'}
-          </Text>
-          <PressableScale onPress={() => setKeyboardVisible(false)}>
+          </Text> 
+         <PressableScale onPress={() => setKeyboardVisible(false)}>
             <Text style={styles.kbClose}>✕</Text>
           </PressableScale>
         </View>
+
+        <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
 
         {overflowWarning ? <Text style={styles.overflowWarning}>{overflowWarning}</Text> : null}
         {keyError ? <Text style={styles.keyError}>{keyError}</Text> : null}
 
         <View style={styles.barInputRow}>
           <TextInput
-            style={styles.barInput}
+            style={[
+              styles.barInput,
+              Platform.OS === 'web' && { transitionProperty: 'border-color, background-color', transitionDuration: '200ms' },
+              (barInputFocused || barInputHovered) && styles.barInputActive,
+            ]}
             value={barInputText}
             onChangeText={setBarInputText}
             placeholder="Type or paste bar e.g.  d:r:m:f"
@@ -834,6 +1007,12 @@ function addEntry(vi, bi, entry) {
             autoCorrect={false}
             onSubmitEditing={commitBarInput}
             returnKeyType="done"
+            onFocus={() => setBarInputFocused(true)}
+            onBlur={() => setBarInputFocused(false)}
+            {...(Platform.OS === 'web' ? {
+              onMouseEnter: () => setBarInputHovered(true),
+              onMouseLeave: () => setBarInputHovered(false),
+            } : {})}
           />
           <PressableScale style={styles.barInputBtn} onPress={commitBarInput}>
             <Text style={styles.barInputBtnText}>✓</Text>
@@ -871,7 +1050,7 @@ function addEntry(vi, bi, entry) {
               style={[styles.noteBtn, pendingNote?.syllable === n && styles.noteBtnSelected]}
               onPress={() => handleNoteTap(n)}
             >
-              <Text style={styles.noteBtnText}>{n}</Text>
+              <Text style={[styles.noteBtnText, pendingNote?.syllable === n && styles.noteBtnTextSelected]}>{n}</Text>
             </PressableScale>
           ))}
         </View>
@@ -892,7 +1071,7 @@ function addEntry(vi, bi, entry) {
                   style={[styles.noteBtn, styles.noteBtnChromatic, pendingNote?.syllable === n && styles.noteBtnSelected]}
                   onPress={() => handleNoteTap(n)}
                 >
-                  <Text style={styles.noteBtnText}>{n}</Text>
+                  <Text style={[styles.noteBtnText, pendingNote?.syllable === n && styles.noteBtnTextSelected]}>{n}</Text>
                 </PressableScale>
               ))}
             </View>
@@ -904,7 +1083,7 @@ function addEntry(vi, bi, entry) {
                   style={[styles.noteBtn, styles.noteBtnChromatic, pendingNote?.syllable === n && styles.noteBtnSelected]}
                   onPress={() => handleNoteTap(n)}
                 >
-                  <Text style={styles.noteBtnText}>{n}</Text>
+                  <Text style={[styles.noteBtnText, pendingNote?.syllable === n && styles.noteBtnTextSelected]}>{n}</Text>
                 </PressableScale>
               ))}
             </View>
@@ -917,13 +1096,13 @@ function addEntry(vi, bi, entry) {
             style={[styles.octaveBtn, pendingNote?.octave === "'" && styles.octaveBtnSelected]}
             onPress={() => handleOctaveTap('upper')}
           >
-            <Text style={styles.octaveBtnText}>↑ Upper</Text>
+            <Text style={[styles.octaveBtnText, pendingNote?.octave === "'" && styles.octaveBtnTextActive]}>↑ Upper</Text>
           </PressableScale>
           <PressableScale
             style={[styles.octaveBtn, pendingNote?.octave === '1' && styles.octaveBtnSelected]}
             onPress={() => handleOctaveTap('lower')}
           >
-            <Text style={styles.octaveBtnText}>↓ Lower</Text>
+            <Text style={[styles.octaveBtnText, pendingNote?.octave === '1' && styles.octaveBtnTextActive]}>↓ Lower</Text>
           </PressableScale>
         </View>
 
@@ -951,17 +1130,18 @@ function addEntry(vi, bi, entry) {
             style={[styles.extraBtn, pendingNote?.syllable === '-' && styles.noteBtnSelected]}
             onPress={() => handleSpecialNoteTap('hold')}
           >
-            <Text style={styles.extraBtnText}>— Hold</Text>
+            <Text style={[styles.extraBtnText, pendingNote?.syllable === '-' && styles.noteBtnTextSelected]}>— Hold</Text>
             <Text style={styles.extraBtnSub}>pick duration →</Text>
           </PressableScale>
           <PressableScale
             style={[styles.extraBtn, pendingNote?.syllable === 'x' && styles.noteBtnSelected]}
             onPress={() => handleSpecialNoteTap('rest')}
           >
-            <Text style={styles.extraBtnText}>x Rest</Text>
+            <Text style={[styles.extraBtnText, pendingNote?.syllable === 'x' && styles.noteBtnTextSelected]}>x Rest</Text>
             <Text style={styles.extraBtnSub}>pick duration →</Text>
           </PressableScale>
         </View>
+        </ScrollView>
       </View>
     );
   }
@@ -973,34 +1153,72 @@ function addEntry(vi, bi, entry) {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.headerBanner}>
+      <ScrollView
+        ref={pageScrollRef}
+        onScroll={(e) => { pageScrollY.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isDesktop && { maxWidth: 1300, alignSelf: 'center', width: '100%', paddingHorizontal: 48, paddingTop: 8 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View
+          style={[
+            styles.headerBanner,
+            isDesktop && {
+              position: 'sticky',
+              top: 0,
+              zIndex: 100,
+              backgroundColor: isLight ? 'rgba(245,238,230,0.92)' : 'rgba(16,11,19,0.92)',
+              shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 10,
+              marginHorizontal: -48, paddingHorizontal: 48,
+            },
+          ]}
+        >
           <View style={styles.headerRow}>
             <View style={styles.headerSpacer} />
             <View style={styles.headerTitleBlock}>
-              <Text style={styles.title}>Solfa Harmony</Text>
+              <Text style={[styles.title, isDesktop && { fontSize: 38 }]}>Solfa Harmony</Text>
               <Text style={styles.subtitle}>SATB VOCAL HARMONY GENERATOR</Text>
             </View>
             <View style={styles.themeToggleCorner}>
               <Text style={styles.themeToggleLabel}>Dark</Text>
-              <Switch
-                value={isLight}
-                onValueChange={setIsLight}
-                trackColor={{ false: C.input, true: C.crimson }}
-                thumbColor={isLight ? C.secondary : C.textSecondary}
-                ios_backgroundColor={C.input}
-                style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-              />
+              <Pressable
+                onPress={() => setIsLight(l => !l)}
+                style={[styles.toggleTrack, isLight && styles.toggleTrackActive]}
+              >
+                <View style={[styles.toggleThumb, isLight && styles.toggleThumbActive]} />
+              </Pressable>
               <Text style={styles.themeToggleLabel}>Light</Text>
             </View>
           </View>
+        </View>
+
+        <View style={[styles.summaryRow, isDesktop && { maxWidth: 420, alignSelf: 'center' }]}>
+          <LinearGradient colors={[C.cardA, C.cardB]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>KEY</Text>
+            <Text style={styles.summaryValue}>{selectedKey} major</Text>
+            <View style={styles.summaryTimeSigRow}>
+              <View style={styles.timeSigStack}>
+                <Text style={styles.summarySubNum}>{selectedTime.split('/')[0]}</Text>
+                <Text style={styles.summarySubNum}>{selectedTime.split('/')[1]}</Text>
+              </View>
+              <Text style={styles.summarySub}> time</Text>
+            </View>
+          </LinearGradient>
+          <LinearGradient colors={[C.cardA, C.cardB]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>TEMPO</Text>
+            <Text style={styles.summaryValue}>{selectedTempo.name}</Text>
+            <Text style={styles.summarySub}>{selectedTempo.bpm} bpm</Text>
+          </LinearGradient>
         </View>
 
         <Text style={styles.label}>Select Key:</Text>
         {renderPillRow(KEYS, selectedKey, setSelectedKey)}
 
         <Text style={styles.label}>Time Signature:</Text>
-        {renderPillRow(SIMPLE_TIMES, selectedTime, setSelectedTime)}
+        {renderPillRow(SIMPLE_TIMES, selectedTime, setSelectedTime, null, true)}
 
         <Text style={styles.label}>Tempo:</Text>
         {renderPillRow(TEMPOS, selectedTempo, setSelectedTempo, t => `${t.name}\n${t.bpm} BPM`)}
@@ -1012,12 +1230,12 @@ function addEntry(vi, bi, entry) {
         </Text>
         {renderGrid()}
 
-        <View style={styles.barControlsRow}>
+        <View style={[styles.barControlsRow, isDesktop && { maxWidth: 420, alignSelf: 'center' }]}>
           <PressableScale style={styles.outlineBtn} onPress={handleAddBar} disabled={numBars >= 200}>
-            <Text style={styles.outlineBtnText}>+ Add Bar</Text>
+            <Text style={styles.outlineBtnText} numberOfLines={1}>+ Add Bar</Text>
           </PressableScale>
           <PressableScale style={styles.outlineBtn} onPress={handleRemoveBar} disabled={numBars <= 1}>
-            <Text style={styles.outlineBtnText}>− Remove Bar</Text>
+            <Text style={styles.outlineBtnText} numberOfLines={1}>− Remove Bar</Text>
           </PressableScale>
         </View>
 
@@ -1052,19 +1270,27 @@ function addEntry(vi, bi, entry) {
         )}
 
         <PressableScale
-          style={styles.scanBtn}
+          style={[styles.scanBtn, isDesktop && { maxWidth: 420, alignSelf: 'center' }]}
           onPress={() => { setStatusMessage('📷 Scan feature coming soon! 🚧'); setStatusType('warning'); }}
         >
           <Text style={styles.scanBtnText}>📷 Scan Typed Score</Text>
           <Text style={styles.scanBtnSub}>Coming Soon 🚧</Text>
         </PressableScale>
 
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 16, width: '100%' }}>
+        <PressableScale
+          style={[styles.scanBtn, isDesktop && { maxWidth: 420, alignSelf: 'center' }, { marginTop: 12 }]}
+          onPress={() => { setStatusMessage('🎤 Custom voice samples coming soon! 🚧'); setStatusType('warning'); }}
+        >
+          <Text style={styles.scanBtnText}>🎤 Custom Voice Samples</Text>
+          <Text style={styles.scanBtnSub}>Coming Soon 🚧</Text>
+        </PressableScale>
+
+        <View style={[styles.barControlsRow, isDesktop && { maxWidth: 420, alignSelf: 'center' }]}>
           <PressableScale
             style={[styles.outlineBtn, isLooping && { backgroundColor: C.crimson }]}
             onPress={() => setIsLooping(l => !l)}
           >
-            <Text style={styles.outlineBtnText}>{isLooping ? '🔁 Loop: ON' : '🔁 Loop: OFF'}</Text>
+            <Text style={styles.outlineBtnText} numberOfLines={1}>{isLooping ? '🔁 Loop: ON' : '🔁 Loop: OFF'}</Text>
           </PressableScale>
           <PressableScale
             style={styles.outlineBtn}
@@ -1084,14 +1310,16 @@ function addEntry(vi, bi, entry) {
               }
               setCurrentAudio(null);
               setIsLooping(false);
+              setStatusMessage('Ready to play');
+              setStatusType('ready');
             }}
           >
-            <Text style={styles.outlineBtnText}>⏹ Stop</Text>
+            <Text style={styles.outlineBtnText} numberOfLines={1}>⏹ Stop</Text>
           </PressableScale>
         </View>
 
         <PressableScale
-          style={[styles.playBtn, isLoading && styles.playBtnDisabled]}
+          style={[styles.playBtn, isDesktop && { maxWidth: 420, alignSelf: 'center' }, isLoading && styles.playBtnDisabled]}
           onPress={() => playScore(null)}
           disabled={isLoading}
         >
@@ -1105,7 +1333,7 @@ function addEntry(vi, bi, entry) {
           {statusMessage}
         </Text>
 
-        <View style={{ height: keyboardVisible ? 500 : 40 }} />
+        <View style={{ height: keyboardVisible ? 500 : 40 + insets.bottom }} />
       </ScrollView>
 
       {renderKeyboard()}
@@ -1133,6 +1361,8 @@ const DARK_THEME = {
   cardA: '#3B1F3E',
   cardB: '#7A3A5F',
   gold: '#FFC94A',
+  onCrimson: '#FFFFFF',
+  onCrimsonMuted: 'rgba(255,255,255,0.7)',
 };
 
 const LIGHT_THEME = {
@@ -1155,46 +1385,69 @@ const LIGHT_THEME = {
   cardA: '#EAD2DB',
   cardB: '#DBBECB',
   gold: '#B8860B',
+  onCrimson: '#3B1F3E',
+  onCrimsonMuted: 'rgba(59,31,62,0.65)',
 };
 
 function createStyles(C) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: C.black },
   scrollContent: { padding: 20, alignItems: 'center' },
-  headerBanner: { width: '100%', paddingVertical: 18, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  headerBanner: { width: '100%', paddingVertical: 26, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: C.border },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   headerSpacer: { width: 88 },
   headerTitleBlock: { flex: 1, alignItems: 'center' },
   themeToggleCorner: { width: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 },
   themeToggleLabel: { color: C.textSecondary, fontSize: 8.5, fontWeight: 'bold', letterSpacing: 0.3, fontFamily: 'Georgia' },
-  title: { fontSize: 25, fontWeight: '900', color: C.offWhite, fontFamily: 'Georgia' },
+  toggleTrack: { width: 34, height: 19, borderRadius: 10, backgroundColor: C.input, borderWidth: 1, borderColor: C.borderStrong, padding: 2, justifyContent: 'center' },
+  toggleTrackActive: { backgroundColor: C.crimson, borderColor: C.wineRing },
+  toggleThumb: { width: 13, height: 13, borderRadius: 7, backgroundColor: C.wineRing, transform: [{ translateX: 0 }] },
+  toggleThumbActive: { transform: [{ translateX: 13 }] },
+  title: { fontSize: 30, fontWeight: '900', color: C.offWhite, fontFamily: 'Georgia' },
   subtitle: { fontSize: 10.5, color: C.textSecondary, marginTop: 15, letterSpacing: 1.5, fontFamily: 'Georgia' },
+  summaryRow: { flexDirection: 'row', gap: 18, width: '100%', marginTop: 36 },
+  summaryCard: {
+    flex: 1, borderRadius: 28, padding: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 4,
+  },
+  summaryLabel: { color: C.wineText, fontSize: 10, fontWeight: 'bold', letterSpacing: 1.8, fontFamily: 'Georgia' },
+  summaryValue: { color: C.onCrimson, fontSize: 20, fontWeight: '900', marginTop: 6, fontFamily: 'Georgia' },
+  summarySub: { color: C.onCrimsonMuted, fontSize: 12, marginTop: 4, fontFamily: 'Georgia' },
+  summaryTimeSigRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  timeSigStack: { alignItems: 'center' },
+  summarySubNum: { color: C.onCrimsonMuted, fontSize: 11, lineHeight: 12, fontFamily: 'Georgia' },
   label: { alignSelf: 'flex-start', color: C.offWhite, fontWeight: 'bold', fontSize: 14, marginTop: 26, marginBottom: 10, letterSpacing: 0.4, fontFamily: 'Georgia' },
   hint: { alignSelf: 'flex-start', color: C.textSecondary, fontSize: 11, marginBottom: 10, lineHeight: 16 },
-  pill: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 14, backgroundColor: C.input, borderWidth: 1, borderColor: C.borderStrong },
+  pill: {
+    paddingHorizontal: 18, paddingVertical: 11, borderRadius: 14, backgroundColor: C.input,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 2,
+  },
   pillActive: {
-    backgroundColor: C.crimson, borderWidth: 2, borderColor: C.wineRing,
-    shadowColor: C.wineRing, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
+    backgroundColor: C.crimson,
+    shadowColor: C.wineRing, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 3,
   },
-  pillText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13, textAlign: 'center' },
-  pillTextActive: { color: C.offWhite },
+  pillText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13, textAlign: 'center', fontFamily: 'Georgia' },
+  pillTextActive: { color: C.onCrimson },
   voiceSelectorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, width: '100%', marginBottom: 4, justifyContent: 'center' },
-  voiceToggleBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 18, backgroundColor: C.input, borderWidth: 1, borderColor: C.borderStrong },
-  voiceToggleBtnActive: {
-    backgroundColor: C.crimson, borderColor: C.wineRing,
-    shadowColor: C.wineRing, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
+  voiceToggleBtn: {
+    paddingHorizontal: 20, paddingVertical: 12, borderRadius: 18, backgroundColor: C.input,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 2,
   },
-  voiceToggleText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13 },
-  voiceToggleTextActive: { color: C.offWhite },
+  voiceToggleBtnActive: {
+    backgroundColor: C.crimson,
+    shadowColor: C.wineRing, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 3,
+  },
+  voiceToggleText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 13, fontFamily: 'Georgia' },
+  voiceToggleTextActive: { color: C.onCrimson },
   gridContainer: { width: '100%', backgroundColor: C.card, borderRadius: 22, borderWidth: 1, borderColor: C.borderStrong, overflow: 'hidden' },
   gridHeaderRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.borderStrong, backgroundColor: C.input },
-  voiceLabelBox: { width: 72, justifyContent: 'center', paddingLeft: 8, position: 'sticky', left: 0, backgroundColor: C.card, zIndex: 2 },
+  voiceLabelBox: { width: 90, justifyContent: 'center', paddingLeft: 8, position: 'sticky', left: 0, backgroundColor: C.card, zIndex: 2 },
   barHeader: { width: 130, alignItems: 'center', paddingVertical: 8, borderLeftWidth: 1, borderLeftColor: C.border, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 },
   barHeaderText: { color: C.textSecondary, fontSize: 11, fontWeight: 'bold', fontFamily: 'Georgia' },
   barPlayBtn: { backgroundColor: C.crimson, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  barPlayBtnText: { color: C.offWhite, fontSize: 10, fontWeight: 'bold' },
+  barPlayBtnText: { color: C.onCrimson, fontSize: 10, fontWeight: 'bold' },
   voiceRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: C.border },
-  voiceLabel: { width: 72, color: C.textSecondary, fontWeight: 'bold', fontSize: 11, paddingVertical: 16, paddingHorizontal: 8, letterSpacing: 0.5, fontFamily: 'Georgia', textAlign: 'center' },
+  voiceLabel: { width: 90, color: C.textSecondary, fontWeight: 'bold', fontSize: 10.5, paddingVertical: 16, paddingHorizontal: 6, letterSpacing: 0.2, fontFamily: 'Georgia', textAlign: 'center' },
   barCell: { width: 130, minHeight: 84, padding: 10, borderLeftWidth: 1, borderLeftColor: C.border, justifyContent: 'space-between' },
   barCopyBtn: { position: 'absolute', top: 4, right: 4, padding: 6, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   barCopyBtnText: { fontSize: 12, color: C.textSecondary },
@@ -1204,21 +1457,24 @@ function createStyles(C) {
   barCellNotes: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, flex: 1, alignItems: 'center' },
   emptyBarText: { color: C.textFaint, fontSize: 11, fontStyle: 'italic' },
   noteChip: { backgroundColor: C.crimson, borderRadius: 12, paddingHorizontal: 9, paddingVertical: 3, borderWidth: 1, borderColor: C.wineRing },
-  noteChipText: { color: C.offWhite, fontSize: 12, fontWeight: 'bold', fontFamily: 'Georgia' },
+  noteChipText: { color: C.onCrimson, fontSize: 12, fontWeight: 'bold', fontFamily: 'Georgia' },
   cursor: { color: C.wineRing, fontSize: 18, fontWeight: 'bold', marginLeft: 1 },
   beatCounter: { fontSize: 10, fontWeight: 'bold', marginTop: 6 },
-  barControlsRow: { flexDirection: 'row', width: '100%', marginTop: 18, gap: 10 },
-  outlineBtn: { flex: 1, borderWidth: 1.5, borderColor: C.secondary, borderRadius: 18, paddingVertical: 11, alignItems: 'center' },
-  outlineBtnText: { color: C.secondary, fontWeight: 'bold', fontFamily: 'Georgia' },
+  barControlsRow: { flexDirection: 'row', flexWrap: 'wrap', width: '100%', marginTop: 18, gap: 8, justifyContent: 'center' },
+  outlineBtn: {
+    width: 165, borderRadius: 18, paddingVertical: 11, paddingHorizontal: 10, alignItems: 'center', backgroundColor: C.input,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 2,
+  },
+  outlineBtnText: { color: C.secondary, fontWeight: 'bold', fontFamily: 'Georgia', fontSize: 13 },
   scanBtn: { width: '100%', marginTop: 28, borderWidth: 1, borderColor: C.secondary, borderRadius: 18, paddingVertical: 14, alignItems: 'center', borderStyle: 'dashed' },
   scanBtnText: { color: C.secondary, fontWeight: 'bold', fontSize: 15, fontFamily: 'Georgia' },
   scanBtnSub: { color: C.textFaint, fontSize: 11, marginTop: 3 },
   playBtn: {
-    marginTop: 20, width: '100%', backgroundColor: C.crimson, paddingVertical: 18, borderRadius: 20, alignItems: 'center', borderWidth: 1, borderColor: C.wineRing,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 14, elevation: 5,
+    marginTop: 20, width: '100%', backgroundColor: C.crimson, paddingVertical: 18, borderRadius: 20, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 5,
   },
   playBtnDisabled: { opacity: 0.6 },
-  playBtnText: { color: C.offWhite, fontSize: 17, fontWeight: 'bold', letterSpacing: 1, fontFamily: 'Georgia' },
+  playBtnText: { color: C.onCrimson, fontSize: 17, fontWeight: 'bold', letterSpacing: 1, fontFamily: 'Georgia' },
   statusText: { marginTop: 14, fontSize: 14, textAlign: 'center', fontWeight: 'bold', fontFamily: 'Georgia', paddingBottom: 20 },
   keyboard: {
     position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.input, borderTopWidth: 1, borderTopColor: C.borderStrong,
@@ -1232,6 +1488,7 @@ function createStyles(C) {
   keyError: { color: C.error, fontSize: 11, fontWeight: 'bold', textAlign: 'center', marginBottom: 6, backgroundColor: C.input, borderRadius: 10, padding: 6 },
   barInputRow: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center' },
   barInput: { flex: 1, backgroundColor: C.black, borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, color: C.offWhite, fontSize: 14, fontFamily: 'Courier New' },
+  barInputActive: { borderColor: C.wineRing, backgroundColor: C.input },
   barInputBtn: { backgroundColor: C.secondary, borderRadius: 14, width: 44, height: 40, alignItems: 'center', justifyContent: 'center' },
   barInputBtnText: { color: C.onSecondary, fontWeight: 'bold', fontSize: 13 },
   navRow: { flexDirection: 'row', gap: 4, marginBottom: 12, flexWrap: 'wrap' },
@@ -1239,24 +1496,38 @@ function createStyles(C) {
   navBtnText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 10 },
   kbSectionLabel: { color: C.textSecondary, fontSize: 9, fontWeight: 'bold', letterSpacing: 1.2, marginTop: 10, marginBottom: 5 },
   noteRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, marginBottom: 8 },
-  noteBtn: { flex: 1, backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 10, minHeight: 57, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.borderStrong },
+  noteBtn: {
+    flex: 1, backgroundColor: C.input, borderRadius: 14, paddingVertical: 10, minHeight: 57, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 1,
+  },
   noteBtnChromatic: { borderColor: C.wineRing },
   noteBtnSelected: { backgroundColor: C.offWhite, borderColor: C.offWhite },
   noteBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 14, fontFamily: 'Courier New' },
+  noteBtnTextSelected: { color: C.black },
   chromaticToggle: { backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: C.wineRing, borderStyle: 'dashed', marginTop: 8, marginBottom: 8, alignItems: 'center' },
   chromaticToggleText: { color: C.wineText, fontSize: 11, fontWeight: 'bold' },
   octaveRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  octaveBtn: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 9, alignItems: 'center' },
-  octaveBtnSelected: { backgroundColor: C.crimson, borderColor: C.wineRing },
+  octaveBtn: {
+    flex: 1, backgroundColor: C.input, borderRadius: 14, paddingVertical: 9, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 1,
+  },
+  octaveBtnSelected: { backgroundColor: C.crimson, shadowColor: C.wineRing, shadowOpacity: 0.25 },
   octaveBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 12 },
+  octaveBtnTextActive: { color: C.onCrimson },
   durationRow: { flexDirection: 'row', gap: 4, marginBottom: 10 },
-  durationBtn: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 11, minHeight: 57, alignItems: 'center', justifyContent: 'center' },
+  durationBtn: {
+    flex: 1, backgroundColor: C.input, borderRadius: 14, paddingVertical: 11, minHeight: 57, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 1,
+  },
   durationBtnDisabled: { opacity: 0.5 },
   durationBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 13 },
   durationBtnLabel: { color: C.textSecondary, fontSize: 9, marginTop: 4 },
   durationBtnSub: { color: C.textFaint, fontSize: 8, marginTop: 3 },
   extrasRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
-  extraBtn: { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.borderStrong, borderRadius: 14, paddingVertical: 9, alignItems: 'center' },
+  extraBtn: {
+    flex: 1, backgroundColor: C.input, borderRadius: 14, paddingVertical: 9, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 1,
+  },
   extraBtnText: { color: C.offWhite, fontWeight: 'bold', fontSize: 12 },
   extraBtnSub: { color: C.textFaint, fontSize: 9, marginTop: 3 },
   });
